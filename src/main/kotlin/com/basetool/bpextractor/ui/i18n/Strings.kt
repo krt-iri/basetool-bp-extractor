@@ -388,7 +388,7 @@ object StringsDe : Strings {
     override val updInstall = "Herunterladen & installieren"
     override val updLater = "Später"
     override val updDownloading = "Update wird heruntergeladen…"
-    override val updInstalling = "Installer gestartet — die App wird jetzt beendet. Die Update-Datei wird nach der Installation automatisch gelöscht."
+    override val updInstalling = "Installer gestartet — die App wird jetzt beendet und startet nach dem Update automatisch neu. Die Update-Datei wird danach automatisch gelöscht."
     override val updFailed: (String) -> String = { msg -> "Update fehlgeschlagen: $msg" }
     override val updRetry = "Erneut versuchen"
 
@@ -743,7 +743,7 @@ object StringsEn : Strings {
     override val updInstall = "Download & install"
     override val updLater = "Later"
     override val updDownloading = "Downloading update…"
-    override val updInstalling = "Installer launched — the app will close now. The update file is deleted automatically after the installation."
+    override val updInstalling = "Installer launched — the app will close now and reopen automatically after the update. The update file is deleted automatically afterwards."
     override val updFailed: (String) -> String = { msg -> "Update failed: $msg" }
     override val updRetry = "Try again"
 

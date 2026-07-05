@@ -235,27 +235,111 @@ object UpdateChecker {
     }
 
     /**
+     * The app's own launcher `.exe`, so the update helper can relaunch it once the install is
+     * done (otherwise the user has to start the freshly-updated app by hand). Resolved from the
+     * fixed jpackage app-image layout — `<installDir>\<AppName>.exe` next to the bundled runtime
+     * at `<installDir>\runtime` (== `java.home`) — which survives the user picking a custom
+     * install dir (guardrail: `dirChooser` is on) and stays valid across an in-place upgrade
+     * (same dir, same exe name). [appPath] (jpackage's own `jpackage.app-path`, when present) is
+     * tried first; both inputs are injectable so the resolver is unit-testable.
+     *
+     * Returns null when nothing resolves — most importantly a dev `gradlew run`, where `java.home`
+     * is a plain JDK with no launcher beside it; the helper then simply skips the relaunch.
+     */
+    internal fun installedAppLauncher(
+        appPath: String? = System.getProperty("jpackage.app-path"),
+        javaHome: String? = System.getProperty("java.home"),
+        launcherName: String = "Basetool SC Extractor.exe",
+    ): File? {
+        appPath?.takeIf { it.isNotBlank() }?.let { p ->
+            val f = File(p)
+            if (f.isFile) return f
+        }
+        val installDir = javaHome?.takeIf { it.isNotBlank() }?.let { File(it).parentFile } ?: return null
+        File(installDir, launcherName).let { if (it.isFile) return it }
+        // Fallback: the app-image install dir holds exactly one .exe (the launcher); the slim
+        // runtime under runtime\ ships no java.exe, so a lone-*.exe match is unambiguous.
+        return installDir.listFiles { f -> f.isFile && f.extension.equals("exe", ignoreCase = true) }
+            ?.singleOrNull()
+    }
+
+    /**
      * The detached helper that performs the install after the app exits. PowerShell reads the
      * whole script file before running it, so the last line can delete the script's own folder.
      * The initial sleep gives the closing JVM time to release its files before msiexec checks
-     * files-in-use; the MSI is deleted afterwards in every outcome (installed or cancelled) —
-     * the temp folder must end up empty either way.
+     * files-in-use; the MSI is deleted afterwards in every outcome (installed, cancelled or
+     * failed) — the temp folder must end up empty either way. When `$AppPath` is given and still
+     * exists, the helper **relaunches the app** at the very end (after the upgrade or its
+     * rollback), so the user lands back in the running app without starting it manually.
+     *
+     * The first `msiexec /i` runs **without** elevation, so the common case (install under
+     * `%LOCALAPPDATA%` on the system drive) stays a zero-friction, no-UAC update. Only when that
+     * attempt does *not* succeed does the helper offer an **elevated retry** ("Als Administrator
+     * wiederholen"): the app has already exited by install time, so this native Yes/No dialog is
+     * the only place such a button can live. This is the escape hatch for the non-system-drive
+     * failure — Windows-Installer error 1926 "Could not set file security for file
+     * X:\Config.Msi\*.rbf. Error: 5", an endless per-`.rbf` loop that only an elevated install
+     * (which holds the privilege to write the rollback files' security descriptors) can get past.
+     * `$Lang` ("de"/"en") localizes the dialog to the language the app was showing; the file is
+     * written with a UTF-8 BOM (see [launchInstaller]) so PowerShell 5.1 renders the umlauts.
+     *
+     * Success/benign exit codes (0 ok, 1602 user-cancelled, 3010/1641 reboot variants) skip the
+     * prompt; anything else — 1603 among them, which is what the 1926 rollback returns — offers it.
      */
     internal val INSTALLER_SCRIPT = """
-        param([string]${'$'}MsiPath)
+        param([string]${'$'}MsiPath, [string]${'$'}Lang = 'de', [string]${'$'}AppPath = '')
         Start-Sleep -Seconds 2
-        Start-Process -FilePath 'msiexec.exe' -ArgumentList ('/i', ('"{0}"' -f ${'$'}MsiPath)) -Wait
+
+        function Invoke-MsiInstall([switch]${'$'}Elevated) {
+            ${'$'}msiArgs = @('/i', ('"{0}"' -f ${'$'}MsiPath))
+            if (${'$'}Elevated) {
+                ${'$'}proc = Start-Process -FilePath 'msiexec.exe' -ArgumentList ${'$'}msiArgs -Verb RunAs -Wait -PassThru
+            } else {
+                ${'$'}proc = Start-Process -FilePath 'msiexec.exe' -ArgumentList ${'$'}msiArgs -Wait -PassThru
+            }
+            return ${'$'}proc.ExitCode
+        }
+
+        ${'$'}okCodes = @(0, 1602, 3010, 1641)
+        try { ${'$'}code = Invoke-MsiInstall } catch { ${'$'}code = 1603 }
+        if (${'$'}okCodes -notcontains ${'$'}code) {
+            try {
+                Add-Type -AssemblyName System.Windows.Forms
+                if (${'$'}Lang -eq 'en') {
+                    ${'$'}msg = "The update could not be installed. This usually happens when the app was installed on a non-system drive (D:, E:, ...), where Windows Installer cannot set the required file permissions.`n`nRetry as administrator?"
+                } else {
+                    ${'$'}msg = "Das Update konnte nicht installiert werden. Häufige Ursache: Installation auf einem Nicht-Systemlaufwerk (D:, E:, ...), auf dem Windows Installer die nötigen Dateirechte nicht setzen kann.`n`nAls Administrator erneut versuchen?"
+                }
+                ${'$'}btn = [System.Windows.Forms.MessageBoxButtons]::YesNo
+                ${'$'}icon = [System.Windows.Forms.MessageBoxIcon]::Warning
+                ${'$'}def = [System.Windows.Forms.MessageBoxDefaultButton]::Button1
+                ${'$'}opt = [System.Windows.Forms.MessageBoxOptions]::DefaultDesktopOnly
+                ${'$'}answer = [System.Windows.Forms.MessageBox]::Show(${'$'}msg, 'Basetool SC Extractor', ${'$'}btn, ${'$'}icon, ${'$'}def, ${'$'}opt)
+                if (${'$'}answer -eq [System.Windows.Forms.DialogResult]::Yes) {
+                    try { Invoke-MsiInstall -Elevated | Out-Null } catch { }
+                }
+            } catch { }
+        }
+
         Remove-Item -LiteralPath ${'$'}MsiPath -Force -ErrorAction SilentlyContinue
         Set-Location -LiteralPath ${'$'}env:TEMP
         Remove-Item -LiteralPath (Split-Path -Parent ${'$'}MsiPath) -Recurse -Force -ErrorAction SilentlyContinue
+
+        if (${'$'}AppPath -and (Test-Path -LiteralPath ${'$'}AppPath)) {
+            try { Start-Process -FilePath ${'$'}AppPath } catch { }
+        }
         """.trimIndent()
 
     /**
      * The helper invocation. Windows PowerShell 5.1 by absolute path (always present, unlike
      * pwsh); `-File` passes the MSI path as a plain positional argument, so no string ever needs
      * embedded quotes — paths with spaces or apostrophes survive ProcessBuilder's quoting as-is.
+     * [lang] ("de"/"en") localizes the elevated-retry dialog to the language the GUI was showing
+     * (any value other than "en" falls back to German); [appPath] is the launcher to relaunch
+     * after the install (empty string to skip). Both are plain trailing positional arguments —
+     * like the MSI path they carry no embedded quotes, so paths with spaces survive as-is.
      */
-    internal fun installerCommand(scriptFile: File, msiFile: File): List<String> = listOf(
+    internal fun installerCommand(scriptFile: File, msiFile: File, lang: String, appPath: String): List<String> = listOf(
         File(System.getenv("SystemRoot") ?: """C:\Windows""", """System32\WindowsPowerShell\v1.0\powershell.exe""").absolutePath,
         "-NoProfile",
         "-NonInteractive",
@@ -263,18 +347,27 @@ object UpdateChecker {
         "-WindowStyle", "Hidden",
         "-File", scriptFile.absolutePath,
         msiFile.absolutePath,
+        if (lang == "en") "en" else "de",
+        appPath,
     )
 
     /**
      * Write the helper script next to [msiFile] and launch it detached. The caller exits the app
-     * right after — the helper waits, installs, then removes the MSI and itself. Its working dir
-     * is the temp root: never the install dir (which the MSI replaces) and never the update dir
-     * (which the helper deletes at the end).
+     * right after — the helper waits, installs, removes the MSI and itself, then relaunches the
+     * app. Its working dir is the temp root: never the install dir (which the MSI replaces) and
+     * never the update dir (which the helper deletes at the end). [lang] localizes the
+     * elevated-retry dialog; [appLauncher] is the exe to relaunch (defaults to
+     * [installedAppLauncher]; null skips the relaunch, e.g. in a dev run).
+     *
+     * The script is written with a UTF-8 BOM: Windows PowerShell 5.1 decodes a BOM-less `.ps1` as
+     * the ANSI code page, which would mangle the German umlauts in the failure dialog; the BOM
+     * makes it read the file as UTF-8.
      */
-    fun launchInstaller(msiFile: File) {
+    fun launchInstaller(msiFile: File, lang: String, appLauncher: File? = installedAppLauncher()) {
         val script = File(msiFile.parentFile, "install-update.ps1")
-        script.writeText(INSTALLER_SCRIPT)
-        ProcessBuilder(installerCommand(script, msiFile))
+        val bom = byteArrayOf(0xEF.toByte(), 0xBB.toByte(), 0xBF.toByte())
+        script.writeBytes(bom + INSTALLER_SCRIPT.toByteArray(Charsets.UTF_8))
+        ProcessBuilder(installerCommand(script, msiFile, lang, appLauncher?.absolutePath ?: ""))
             .directory(msiFile.parentFile.parentFile ?: msiFile.parentFile)
             .redirectOutput(ProcessBuilder.Redirect.DISCARD)
             .redirectError(ProcessBuilder.Redirect.DISCARD)

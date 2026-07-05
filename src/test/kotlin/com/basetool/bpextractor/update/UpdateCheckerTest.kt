@@ -159,27 +159,69 @@ class UpdateCheckerTest {
     fun `installer command runs the hidden powershell helper with plain path arguments`() {
         val script = File("""C:\Users\Tim O'Brien\AppData\Local\Temp\basetool-sc-extractor-update\install-update.ps1""")
         val msi = File("""C:\Users\Tim O'Brien\AppData\Local\Temp\basetool-sc-extractor-update\basetool-sc-extractor-9.9.9.msi""")
-        val command = UpdateChecker.installerCommand(script, msi)
+        val app = File("""C:\Users\Tim O'Brien\AppData\Local\Basetool SC Extractor\Basetool SC Extractor.exe""")
+        val command = UpdateChecker.installerCommand(script, msi, "de", app.absolutePath)
         assertTrue(command.first().endsWith("powershell.exe"))
         assertTrue(command.containsAll(listOf("-NoProfile", "-NonInteractive", "-WindowStyle", "Hidden")))
-        // -File takes the script, then the MSI path as a plain positional argument — paths with
-        // spaces/apostrophes need no embedded quoting anywhere.
+        // -File takes the script, then three plain positional arguments — MSI path, UI language,
+        // app-launcher path. Paths with spaces/apostrophes need no embedded quoting anywhere.
         assertEquals(script.absolutePath, command[command.indexOf("-File") + 1])
-        assertEquals(msi.absolutePath, command.last())
+        assertEquals(msi.absolutePath, command[command.size - 3])
+        assertEquals("de", command[command.size - 2])
+        assertEquals(app.absolutePath, command.last())
         assertTrue(command.none { it.contains('"') })
+        // The language is passed through; anything but "en" falls back to German.
+        assertEquals("en", UpdateChecker.installerCommand(script, msi, "en", "").let { it[it.size - 2] })
+        assertEquals("de", UpdateChecker.installerCommand(script, msi, "fr", "").let { it[it.size - 2] })
+        // No launcher (dev run) → an empty trailing argument, so the helper skips the relaunch.
+        assertEquals("", UpdateChecker.installerCommand(script, msi, "de", "").last())
+    }
+
+    @Test
+    fun `installed app launcher resolves from the jpackage app-image layout`() {
+        val root = Files.createTempDirectory("bpx-appimage").toFile()
+        try {
+            // Mimic <installDir>\<AppName>.exe next to <installDir>\runtime (== java.home).
+            val install = File(root, "Basetool SC Extractor").apply { mkdirs() }
+            val runtime = File(install, "runtime").apply { mkdirs() }
+            val launcher = File(install, "Basetool SC Extractor.exe").apply { writeText("stub") }
+
+            // Derived from java.home when jpackage.app-path is absent.
+            assertEquals(launcher, UpdateChecker.installedAppLauncher(appPath = null, javaHome = runtime.absolutePath))
+            // jpackage.app-path wins when it points at a real file.
+            assertEquals(launcher, UpdateChecker.installedAppLauncher(appPath = launcher.absolutePath, javaHome = null))
+            // Renamed launcher is still found as the install dir's lone .exe.
+            File(install, "Basetool SC Extractor.exe").renameTo(File(install, "Launcher.exe"))
+            assertEquals(File(install, "Launcher.exe"), UpdateChecker.installedAppLauncher(appPath = null, javaHome = runtime.absolutePath))
+            // Dev run: java.home is a plain JDK with no launcher beside it → null (relaunch skipped).
+            val jdk = File(root, "jdk-25").apply { mkdirs() }
+            assertNull(UpdateChecker.installedAppLauncher(appPath = null, javaHome = jdk.absolutePath))
+        } finally {
+            root.deleteRecursively()
+        }
     }
 
     @Test
     fun `installer script installs, waits and deletes the update files`() {
         val script = UpdateChecker.INSTALLER_SCRIPT
-        assertTrue(script.startsWith("param([string]\$MsiPath)"))
+        assertTrue(script.startsWith("param([string]\$MsiPath"))
+        // Positional params: the UI language for the failure dialog and the app to relaunch.
+        assertTrue(script.contains("\$Lang"))
+        assertTrue(script.contains("\$AppPath"))
         assertTrue(script.contains("msiexec.exe"))
         assertTrue(script.contains("-Wait"))
+        // On a failed install the helper offers an elevated retry — the fix for the non-system-drive
+        // "could not set file security" (error 1926) loop that a plain per-user install can't clear.
+        assertTrue(script.contains("-PassThru"))
+        assertTrue(script.contains("-Verb RunAs"))
         // The MSI itself and the whole update folder (incl. the script) are removed afterwards.
         assertTrue(script.contains("Remove-Item -LiteralPath \$MsiPath"))
         assertTrue(script.contains("Split-Path -Parent \$MsiPath"))
         // The helper must leave the update folder before deleting it (CWD blocks deletion).
         assertTrue(script.contains("Set-Location"))
+        // Finally it relaunches the updated app so the user need not start it by hand.
+        assertTrue(script.contains("Start-Process -FilePath \$AppPath"))
+        assertTrue(script.contains("Test-Path -LiteralPath \$AppPath"))
     }
 
     // --- temp dir handling -------------------------------------------------------------------
