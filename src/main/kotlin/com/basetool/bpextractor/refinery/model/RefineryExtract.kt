@@ -101,3 +101,15 @@ data class RefineryExtractGood(
     /** Name of the screenshot this row was (first) read from. */
     val sourceImage: String,
 )
+
+/**
+ * The `rowIndex`es whose `inputQuantity` is null — rows the basetool ingest edge HARD-REJECTS. The
+ * server contract makes `inputQuantity` `@NotNull @PositiveOrZero`, but this producer emits `null`
+ * when the QTY cell could not be read at all (a clipped or too-small capture, e.g. a panel crop that
+ * lost the number columns). Sending such a payload makes the gateway answer `400` with an opaque
+ * `"Validation failed."` problem, so the export screen blocks the send on this instead and points the
+ * user back to the review to correct (or re-capture) the flagged rows. Empty ⇒ every row carries a
+ * quantity and the payload clears the edge. Spans every order, in on-screen (`rowIndex`) order.
+ */
+fun RefineryExtract.rowsMissingQuantity(): List<Int> =
+    orders.flatMap { it.goods }.filter { it.inputQuantity == null }.map { it.rowIndex }

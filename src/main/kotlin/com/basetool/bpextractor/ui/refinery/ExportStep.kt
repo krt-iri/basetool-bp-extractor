@@ -17,6 +17,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 import com.basetool.bpextractor.refinery.RefineryPipeline
+import com.basetool.bpextractor.refinery.model.rowsMissingQuantity
 import com.basetool.bpextractor.ui.CtaButton
 import com.basetool.bpextractor.ui.GhostButton
 import com.basetool.bpextractor.ui.Krt
@@ -53,6 +54,11 @@ fun ExportStep(state: RefineryUiState, appScope: CoroutineScope, onPicker: (Pick
     val strings = LocalStrings.current
     val extract = state.reviewedExtract() ?: return
     val order = extract.orders.first()
+    // Rows whose quantity could not be read (a clipped/too-small capture): the basetool ingest edge
+    // rejects a null inputQuantity (@NotNull) with an opaque "Validation failed." 400. Block the send
+    // here and point the user back to the review instead of shipping a payload the gateway rejects.
+    val missingQtyRows = extract.rowsMissingQuantity()
+    val canSend = missingQtyRows.isEmpty()
     val exportedFile = state.exportedFile
     val exportError = state.exportError
     val canOpen = remember { Desktop.isDesktopSupported() && Desktop.getDesktop().isSupported(Desktop.Action.OPEN) }
@@ -96,14 +102,26 @@ fun ExportStep(state: RefineryUiState, appScope: CoroutineScope, onPicker: (Pick
                 Spacer(Modifier.weight(1f))
                 CtaButton(
                     strings.send.button,
+                    enabled = canSend,
                     onClick = {
                         // Send the reviewed contract straight from memory — nothing is written to disk.
+                        if (!canSend) return@CtaButton
                         val json = runCatching { RefineryPipeline.toJson(extract) }.getOrNull()
                         if (json != null) sendController.request(appScope, SendKind.REFINERY, json, langTag)
                     },
                 )
             },
         ) {
+            if (!canSend) {
+                AlertBox(Krt.Danger) {
+                    Text(
+                        strings.rfSendBlockedMissingQty(missingQtyRows.size),
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = Krt.Gray1,
+                    )
+                }
+                Spacer(Modifier.height(14.dp))
+            }
             if (exportError != null) {
                 Text(exportError, style = MaterialTheme.typography.bodySmall, color = Krt.Danger)
                 Spacer(Modifier.height(8.dp))

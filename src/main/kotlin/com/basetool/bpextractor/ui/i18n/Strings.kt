@@ -303,6 +303,8 @@ interface Strings {
     // §5.5 Export
     val rfExportTitle: String
     val rfExportSuccess: (String) -> String
+    /** Blocks the send when rows carry no quantity (the basetool ingest edge rejects a null qty). */
+    val rfSendBlockedMissingQty: (Int) -> String
     val rfUploadCardTitle: String
     val rfUploadSteps: List<String>
     val rfProvenanceTitle: String
@@ -619,6 +621,10 @@ object StringsDe : Strings {
 
     override val rfExportTitle = "Export & Upload"
     override val rfExportSuccess: (String) -> String = { path -> "RefineryExtract-JSON geschrieben: $path" }
+    override val rfSendBlockedMissingQty: (Int) -> String = { n ->
+        "Senden nicht möglich: Bei $n Zeile(n) konnte die Menge nicht gelesen werden. Bitte im Schritt " +
+            "„Review“ die betroffenen Zeilen korrigieren (✎) oder die Screenshots in höherer Auflösung neu aufnehmen."
+    }
     override val rfUploadCardTitle = "In das Basetool hochladen"
     override val rfUploadSteps = listOf(
         "1. Basetool öffnen → Refinery → Aufträge.",
@@ -974,6 +980,10 @@ object StringsEn : Strings {
 
     override val rfExportTitle = "Export & upload"
     override val rfExportSuccess: (String) -> String = { path -> "RefineryExtract JSON written: $path" }
+    override val rfSendBlockedMissingQty: (Int) -> String = { n ->
+        "Cannot send: $n row(s) have no quantity read. Correct the affected rows in the review step (✎) " +
+            "or re-capture the screenshots at a higher resolution."
+    }
     override val rfUploadCardTitle = "Upload into the basetool"
     override val rfUploadSteps = listOf(
         "1. Open the basetool → Refinery → Orders.",

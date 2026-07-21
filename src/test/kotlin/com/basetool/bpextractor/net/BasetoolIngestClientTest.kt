@@ -73,6 +73,30 @@ class BasetoolIngestClientTest {
     }
 
     @Test
+    fun appendsFieldErrorsToGenericValidationDetail() {
+        // The gateway's bean-validation problem carries only a generic detail; the field messages
+        // are what tell the user WHICH field was rejected (e.g. a null inputQuantity from a read
+        // that lost the number column) — the client must surface them.
+        server.createContext("/v1/refinery-extract") { ex ->
+            respond(
+                ex,
+                400,
+                """{"title":"Validation failed","detail":"Validation failed.","status":400,""" +
+                    """"code":"VALIDATION_FAILED","fieldErrors":["orders[0].goods[3].inputQuantity: must not be null"]}""",
+                "application/problem+json",
+            )
+        }
+        val ex =
+            assertFailsWith<IngestException> {
+                BasetoolIngestClient(baseUrl).sendRefinery("tok", "{}", "de")
+            }
+        assertEquals(
+            "Validation failed. (orders[0].goods[3].inputQuantity: must not be null)",
+            ex.message,
+        )
+    }
+
+    @Test
     fun rejectsNonHttpsBaseUrl() {
         assertFailsWith<IllegalArgumentException> { BasetoolIngestClient("http://evil.example") }
     }

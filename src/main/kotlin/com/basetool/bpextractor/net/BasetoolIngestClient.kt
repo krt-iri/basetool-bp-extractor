@@ -23,6 +23,12 @@ data class IngestProblem(
     val detail: String = "",
     val status: Int = 0,
     val code: String = "",
+    /**
+     * Per-field bean-validation messages (`"orders[0].goods[3].inputQuantity: must not be null"`),
+     * present on the gateway's `VALIDATION_FAILED` problem whose `detail` is only the generic
+     * "Validation failed." — without them the user cannot tell WHICH field was rejected.
+     */
+    val fieldErrors: List<String> = emptyList(),
 )
 
 /** Signals an ingest send failure; [message] is the (already-localized) detail, safe to show. */
@@ -118,15 +124,26 @@ class BasetoolIngestClient(
         throw IngestException(problemDetail(response.body(), response.statusCode()))
     }
 
-    /** Extracts the RFC 7807 {@code detail} (already localized); falls back to a generic phrase. */
+    /**
+     * Extracts the RFC 7807 {@code detail} (already localized); appends the per-field validation
+     * messages when present so a generic "Validation failed." names the offending field, and falls
+     * back to a generic phrase when the body carries neither.
+     */
     private fun problemDetail(body: String, status: Int): String {
-        val detail =
+        val problem =
             try {
-                json.decodeFromString<IngestProblem>(body).detail
+                json.decodeFromString<IngestProblem>(body)
             } catch (_: Exception) {
-                ""
+                null
             }
-        return detail.ifBlank { "the basetool rejected the upload (HTTP $status)" }
+        val detail = problem?.detail?.ifBlank { null }
+        val fields = problem?.fieldErrors?.takeIf { it.isNotEmpty() }?.joinToString("; ")
+        return when {
+            detail != null && fields != null -> "$detail ($fields)"
+            detail != null -> detail
+            fields != null -> fields
+            else -> "the basetool rejected the upload (HTTP $status)"
+        }
     }
 
     companion object {

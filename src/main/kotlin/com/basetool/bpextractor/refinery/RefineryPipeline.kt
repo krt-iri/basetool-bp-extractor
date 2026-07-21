@@ -136,14 +136,19 @@ class RefineryPipeline(
             // unload below releases as soon as the run is done with a model.
             var panelB64 = toBase64Png(prepared.readImage)
             var panel = reader.readPanel(panelB64)
-            // Ultrawide rescue: on a 32:9 frame the orange hull can drive the per-panel search onto
-            // the STATION-PROFILE sidebar, boxing the work-order panel too narrowly so its number
-            // columns are clipped — the read returns material names but no quantities (Auftrag 16).
-            // Retry once with the whole terminal extent, which the model reads the SETUP panel out of
-            // reliably. The per-panel crop stays PRIMARY (where it works — Auftrag 8/9 — its tighter,
-            // higher-resolution crop reads the digits better), so the rescue only fires on an
-            // otherwise empty-handed read and only on ultrawide frames.
-            if (box != null && Locate.isUltrawide(input.image) && panel.lacksQuantities()) {
+            // Empty-quantities rescue: the per-panel crop read material names but NO quantity in a
+            // single cell, so the number columns were clipped off the crop — the located box was too
+            // narrow (Auftrag 21: QTY/YIELD/REFINE cut off the right edge), landed on the wrong band
+            // (Auftrag 22: the STATION-PROFILE sidebar, no materials table), or the orange hull drove
+            // the per-panel search off on a 32:9 frame (Auftrag 16). Retry ONCE with the whole
+            // terminal extent, which the model reads the SETUP panel out of reliably — the same
+            // full-terminal layout the portrait terminal-area captures already work from (Auftrag
+            // 10/12/19). This was ultrawide-only originally; it fires on ANY frame now because the
+            // same "located box clips the number columns" failure hits small sub-HD portrait captures
+            // too. The per-panel crop stays PRIMARY where it works (its tighter, higher-resolution
+            // crop reads digits better), so the rescue fires only on an otherwise empty-handed read
+            // and only replaces it when the wider re-read actually recovered quantities.
+            if (box != null && panel.lacksQuantities()) {
                 val extentBox = Locate.terminalExtentBox(input.image)
                 if (extentBox != null && extentBox != box) {
                     val rescued = Locate.prepare(input.image, extentBox)
