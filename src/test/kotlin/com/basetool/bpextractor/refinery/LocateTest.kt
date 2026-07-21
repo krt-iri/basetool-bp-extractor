@@ -243,6 +243,70 @@ class LocateTest {
     }
 
     @Test
+    fun `headerNameRight keeps a long station name that runs past 2-3 width, dropping a right-side title`() {
+        // Regression for Auftrag 19–22: "MIC-L1 SHALLOW FRONTIER STATION" runs past 2/3 of the
+        // crop and the old fixed cut clipped it to "…STAT". The leftmost bright-text run must be
+        // kept whole; a REFINEMENT title after the wide dark gap must still be dropped.
+        val w = 600
+        val strip = BufferedImage(w, 60, BufferedImage.TYPE_INT_RGB)
+        val g = strip.createGraphics()
+        try {
+            g.color = dark
+            g.fillRect(0, 0, w, 60)
+            g.color = Color(230, 235, 240) // bright UI text (the station name), word-spaced glyphs
+            var x = 20
+            while (x < 470) { g.fillRect(x, 20, 14, 20); x += 22 } // ends ~468, past 2/3 (= 400)
+            g.fillRect(540, 20, 50, 20) // a right-side title after a wide dark gap — must be excluded
+        } finally {
+            g.dispose()
+        }
+
+        val right = Locate.headerNameRight(strip, fallbackRight = w * 2 / 3)
+
+        assertTrue(right > w * 2 / 3, "keeps the whole name past 2/3 width, got $right")
+        assertTrue(right < 540, "drops the right-side title, got $right")
+    }
+
+    @Test
+    fun `headerNameRight falls back to the given width when no bright text stands out`() {
+        // A blank / synthetic strip (no readable name) keeps the historical 2/3-width crop — this
+        // is what pins the existing terminal-area location-strip test at fallback width.
+        val strip = BufferedImage(600, 60, BufferedImage.TYPE_INT_RGB)
+        val g = strip.createGraphics()
+        try {
+            g.color = dark
+            g.fillRect(0, 0, 600, 60)
+        } finally {
+            g.dispose()
+        }
+
+        assertEquals(400, Locate.headerNameRight(strip, fallbackRight = 400))
+    }
+
+    @Test
+    fun `portrait location strip widens to hold a long station name`() {
+        // End-to-end through prepare: a portrait terminal-area crop whose header name runs past
+        // 2/3 width must yield a location strip wider than the pre-fix 2/3 cut (× the 2× upscale).
+        val w = 850
+        val h = 1000
+        val img = frame(w, h)
+        val g = img.createGraphics()
+        try {
+            g.color = Color(230, 235, 240)
+            var x = 20
+            val nameEnd = (w * 0.72).toInt() // past 2/3 (= 566)
+            while (x < nameEnd) { g.fillRect(x, 30, 16, 26); x += 24 }
+        } finally {
+            g.dispose()
+        }
+
+        val prepared = Locate.prepare(img)
+        val loc = assertNotNull(prepared.locationImage, "a portrait crop carries the header strip")
+
+        assertTrue(loc.width > (w * 2 / 3) * 2 - 32, "strip clipped the long name: width=${loc.width}")
+    }
+
+    @Test
     fun `snap32 rounds to multiples of 32 with a floor of 32`() {
         assertEquals(1536, Locate.snap32(1536))
         assertEquals(1536, Locate.snap32(1530))
