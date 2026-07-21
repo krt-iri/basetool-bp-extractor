@@ -4,6 +4,7 @@ import com.basetool.bpextractor.refinery.model.RefineryExtract
 import com.basetool.bpextractor.refinery.model.RefineryExtractGood
 import com.basetool.bpextractor.refinery.model.RefineryExtractImage
 import com.basetool.bpextractor.refinery.model.RefineryExtractOrder
+import com.basetool.bpextractor.refinery.model.rowsMissingQuantity
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.jsonObject
 import kotlin.test.Test
@@ -145,6 +146,45 @@ class RefineryExtractContractTest {
 
         // The round trip is lossless.
         assertEquals(extract, json.decodeFromString<RefineryExtract>(encoded))
+    }
+
+    @Test
+    fun `rowsMissingQuantity flags exactly the null-input rows the ingest edge rejects`() {
+        fun good(rowIndex: Int, qty: Long?) = RefineryExtractGood(
+            rowIndex = rowIndex,
+            rawMaterialName = "AGRICIUM (ORE)",
+            quality = 588,
+            inputQuantity = qty,
+            outputQuantity = null,
+            refine = true,
+            confidence = 0.4,
+            sourceImage = "a.png",
+        )
+        fun extractOf(vararg goods: RefineryExtractGood) = RefineryExtract(
+            tool = "basetool-sc-extractor",
+            toolVersion = "0.0.0-test",
+            model = "qwen3-vl:8b-instruct",
+            generatedAt = "2026-07-21T00:00:00Z",
+            orders = listOf(
+                RefineryExtractOrder(
+                    panelType = "SETUP",
+                    quoted = true,
+                    layoutConfidence = 0.4,
+                    sourceImages = listOf(RefineryExtractImage("a.png", 850, 1005, "vlm")),
+                    goods = goods.toList(),
+                ),
+            ),
+        )
+
+        // A clean order (Auftrag 21 after the rescue) is safe to send.
+        assertEquals(emptyList(), extractOf(good(0, 11992), good(1, 44336)).rowsMissingQuantity())
+        // The pre-rescue Auftrag 21 read (every QTY cell clipped) — every row blocks the send.
+        assertEquals(
+            listOf(0, 1, 2),
+            extractOf(good(0, null), good(1, null), good(2, null)).rowsMissingQuantity(),
+        )
+        // A single unreadable row is enough to block, and only that row is reported.
+        assertEquals(listOf(1), extractOf(good(0, 60), good(1, null), good(2, 43)).rowsMissingQuantity())
     }
 
     private fun kotlinx.serialization.json.JsonElement.jsonObject(index: Int) =

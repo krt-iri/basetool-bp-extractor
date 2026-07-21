@@ -94,6 +94,23 @@ class RefineryPipelineTest {
     /** A pre-cropped portrait panel shot (no terminal header → no location read possible). */
     private fun precropped(): BufferedImage = fullFrame(500, 1400)
 
+    /**
+     * A dark full frame carrying a tall bright-white UI-text band on the left — enough for
+     * [Locate.terminalExtentBox] to find a terminal extent (bright [isUiText] columns) that differs
+     * from the anchor-less [Locate.fallbackPanel] geometry, so the empty-quantities rescue can fire.
+     */
+    private fun frameWithTextBand(width: Int = 1920, height: Int = 1080): BufferedImage {
+        val img = fullFrame(width, height)
+        val g = img.createGraphics()
+        try {
+            g.color = Color(240, 240, 240)
+            g.fillRect(width / 16, height / 10, width / 8, height * 8 / 10)
+        } finally {
+            g.dispose()
+        }
+        return img
+    }
+
     private val upperAnswer = """
         METHOD: FERRON EXCHANGE
         QUOTED: YES
@@ -214,6 +231,39 @@ class RefineryPipelineTest {
         assertEquals(
             listOf("TUNGSTEN (ORE)", "INERT MATERIALS"),
             result.extract.orders.single().goods.map { it.rawMaterialName },
+        )
+    }
+
+    @Test
+    fun `a per-panel crop that reads no quantities is rescued via the terminal extent`() {
+        // Auftrag 21/22: the located box clipped the number columns (or landed on the sidebar), so
+        // the first read returns material names but no quantity in any cell. The rescue re-reads the
+        // whole terminal extent — now on ANY frame, not just ultrawide — and its numbers win.
+        val noQuantities = """
+            METHOD: DINYX SOLVENTATION
+            QUOTED: YES
+            IN_MANIFEST: 56061
+            TO_REFINE: --
+            CTA: CONFIRM
+
+            | MATERIAL | QUALITY | QTY | YIELD | REFINE |
+            | --- | --- | --- | --- | --- |
+            | AGRICIUM (ORE) | 346 | -- | -- | ON |
+            | AGRICIUM (ORE) | 588 | -- | -- | ON |
+        """.trimIndent()
+        val ollama = FakeOllama(listOf(noQuantities, upperAnswer))
+
+        val result = pipeline(ollama).extract(listOf(PipelineInput("clipped.png", frameWithTextBand())))
+
+        // The rescue read (upperAnswer) supplied the quantities; the clipped first read was dropped.
+        val order = result.extract.orders.single()
+        assertEquals(listOf("LINDINIUM (ORE)", "TUNGSTEN (ORE)"), order.goods.map { it.rawMaterialName })
+        assertEquals(listOf(957L, 1104L), order.goods.map { it.inputQuantity })
+        assertEquals(32295L, order.rawToRefineTotal)
+        // Two panel reads (primary + rescue), then the single location read, then the unload.
+        assertEquals(
+            listOf("panel" to "10m", "panel" to "10m", "location" to "10m", "unload" to "qwen3-vl:8b-instruct"),
+            ollama.calls,
         )
     }
 
