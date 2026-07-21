@@ -295,11 +295,15 @@ object Locate {
             val stripH = (img.height * 0.22).toInt().coerceIn(1, img.height)
             img.getSubimage(ex0, 0, stripW, stripH)
         } else if (img.height > img.width) {
-            // Portrait = a terminal-area crop (the game only renders landscape frames): the
-            // fixed full-frame header geometry does not apply — the header bar with the
-            // location name sits at the very top of the crop, the name on its left. The strip
-            // stops at 2/3 width to exclude the big REFINEMENT title on the right.
-            img.getSubimage(0, 0, img.width * 2 / 3, max(40, img.height / 10).coerceAtMost(img.height))
+            // Portrait = a terminal-area crop (the game only renders landscape frames): the fixed
+            // full-frame header geometry does not apply — the header bar with the location name
+            // sits at the very top of the crop, the name on its left. Cut the strip just past the
+            // station name (its leftmost bright-text run, [headerNameRight]) so a LONG name is kept
+            // whole while a right-side REFINEMENT title is still dropped — the old fixed 2/3-width
+            // cut clipped "MIC-L1 SHALLOW FRONTIER STATION" to "…STAT" (Auftrag 19–22).
+            val stripH = max(40, img.height / 10).coerceAtMost(img.height)
+            val header = img.getSubimage(0, 0, img.width, stripH)
+            header.getSubimage(0, 0, headerNameRight(header, img.width * 2 / 3), stripH)
         } else {
             val fx = img.width / 3840.0
             val fy = img.height / 2160.0
@@ -322,6 +326,38 @@ object Locate {
 
     /** A bright near-white / cyan UI glyph pixel — the terminal's text, never the orange hull. */
     private fun isUiText(r: Int, g: Int, b: Int): Boolean = r > 170 && g > 170 && b > 150
+
+    /**
+     * The right edge (strip-local px) to cut a portrait header location strip at: just past the
+     * station name, so the crop keeps the WHOLE name yet drops any right-side title (REFINEMENT …).
+     * The name is the LEFTMOST run of bright UI-text columns ([isUiText]) — word spaces inside a
+     * long name are bridged (gap ~ 1/25 of the strip width), the wide dark gap before a right-side
+     * title is not, and stray sub-name-width runs (single glyphs / noise) are skipped. Falls back
+     * to [fallbackRight] when no name text stands out, preserving the historical 2/3-width crop on
+     * blank strips. Fixes the long-name clip that cut "MIC-L1 SHALLOW FRONTIER STATION" to "…STAT"
+     * (Auftrag 19–22); short names (LEVSKI) and their right-side REFINEMENT title are unaffected.
+     */
+    internal fun headerNameRight(strip: BufferedImage, fallbackRight: Int): Int {
+        val w = strip.width
+        val h = strip.height
+        val col = IntArray(w)
+        for (x in 0 until w) {
+            var c = 0
+            for (y in 0 until h) {
+                val rgb = strip.getRGB(x, y)
+                if (isUiText((rgb shr 16) and 0xFF, (rgb shr 8) and 0xFF, rgb and 0xFF)) c++
+            }
+            col[x] = c
+        }
+        val peak = col.maxOrNull() ?: 0
+        if (peak < 3) return fallbackRight
+        val threshold = max(2, (peak * 0.10).toInt())
+        val mask = BooleanArray(w) { col[it] >= threshold }
+        val nameRun = runs(mask, max(8, w / 25)).firstOrNull { it.second - it.first >= w / 40 }
+            ?: return fallbackRight
+        val margin = max(8, w / 40)
+        return min(w, nameRun.second + margin + 1)
+    }
 
     /**
      * The terminal's horizontal content extent `(x0, x1)` on an ultrawide frame, in native pixels,
