@@ -35,7 +35,7 @@ dependencies {
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-swing:1.11.0")
     // Classical-OCR digit cross-check (PP-OCRv3 recognition via ONNX Runtime) — a decorrelated
     // second reader for the numeric cells the VLM mis-reads (refinery-digit-misread-recovery).
-    implementation("com.microsoft.onnxruntime:onnxruntime:1.27.0")
+    implementation("com.microsoft.onnxruntime:onnxruntime:1.28.0")
 
     testImplementation(kotlin("test"))
 }
