@@ -87,8 +87,12 @@ fehl und die App startet normal.
 2. **Star-Citizen-Channel-Ordner** wählen — z. B.
    `C:\Program Files\Roberts Space Industries\StarCitizen\LIVE`. Ausgelesen werden
    die `Game.log` in diesem Ordner **und** alle Logs im Unterordner `logbackups`
-   (`Game Build(...).log`). Existiert der Standard-LIVE-Pfad auf deinem Rechner,
-   ist das Feld bereits vorausgefüllt.
+   (`Game Build(...).log`). Vorausgefüllt ist der Ordner des letzten erfolgreichen
+   Laufs, sonst der Standard-LIVE-Pfad, sofern er auf deinem Rechner existiert.
+   Wählst du einen **Archivordner** — einen Ordner, in dem lose `*.log`-Dateien
+   liegen, ohne `Game.log` und ohne `logbackups` —, werden diese gelesen. Das ist
+   für weggesicherte Logs gedacht; Star Citizen selbst räumt seine `logbackups`
+   irgendwann auf.
 3. **Ausgabe-JSON (Ziel)** wählen — wohin die JSON-Datei geschrieben werden soll.
 4. Auf **Blueprints extrahieren** klicken.
 
@@ -265,6 +269,12 @@ behandelt die realen Eigenheiten dieser Zeilen:
   `UpdateNotificationItem`-Folgezeilen mit `Next`/`StartFade`/`Remove`). Nur die
   `Added notification`-Zeile wird gezählt, damit jeder Blueprint **genau einmal**
   gezählt wird (sonst ~6-fach).
+- **Spielsprache** — das Etikett vor dem Namen (`Received Blueprint`) kommt aus den
+  Lokalisierungstabellen des Spiels und ist übersetzt, wenn du einen
+  Sprachpatch nutzt (`g_language` in der `user.cfg`); die Zeile drumherum bleibt
+  englisch. Erkannt werden Englisch und Deutsch (`Bauplan erhalten`), Groß- und
+  Kleinschreibung egal. Weitere Sprachen kommen dazu, sobald uns ein echtes Log
+  in dieser Sprache vorliegt — geraten wird nicht.
 - **Namen mit Anführungszeichen** (`Yubarev "Mirage" Pistol`), **Klammern**
   (`Yubarev Pistol Battery (10 cap)`), **Slashes** (`Sth/2/C Cirrus`) und
   **Bindestrichen** (`ADP-mk4 Core Woodland`) werden korrekt erfasst. Der Name
