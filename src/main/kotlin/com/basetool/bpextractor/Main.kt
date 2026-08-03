@@ -114,6 +114,12 @@ private class AppState {
     var skippedFiles by mutableStateOf<List<String>>(emptyList())
 
     /**
+     * What the last run found out about the picked install's localisation. Only ever surfaced
+     * when a run came back empty, where "which label were we even looking for?" is the question.
+     */
+    var localization by mutableStateOf(ScLocalization.Detected.NONE)
+
+    /**
      * Live status line. Blank means "initial" — the screen then renders the localized initial
      * hint from the active string catalogue, so the pre-first-action text follows the DE/EN
      * toggle. Event-driven statuses are localized at event time.
@@ -574,10 +580,29 @@ private fun BpSummaryStep(state: AppState) {
                 )
             }
         }
-        // What a scan can never see: SC prunes its own logbackups, so a blueprint received in a
-        // session that has since been pruned is gone for good. Belongs on the summary — it is
-        // about the result the user is looking at, not about configuring the next run.
-        if (export != null) {
+        // An empty result is not an error — 2 of 3 sessions in our own corpus legitimately carry
+        // no blueprint at all — so it stays an explanation, never a warning. The one thing the
+        // user cannot know is which localised label we searched for, so that is what we state.
+        if (export != null && export.blueprintCount == 0) {
+            Spacer(Modifier.height(8.dp))
+            Row(verticalAlignment = Alignment.Top, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                StatusDot(Krt.Gray2)
+                Column {
+                    Text(strings.bpSumZeroTitle, style = MaterialTheme.typography.bodySmall, color = Krt.Gray1)
+                    Text(strings.bpSumZeroBody, style = MaterialTheme.typography.bodySmall, color = Krt.Gray2)
+                    state.localization.activeLanguage?.let { lang ->
+                        Text(
+                            strings.bpSumZeroLanguage(lang),
+                            style = MaterialTheme.typography.bodySmall,
+                            color = Krt.Gray2,
+                        )
+                    }
+                }
+            }
+        } else if (export != null) {
+            // What a scan can never see: SC prunes its own logbackups, so a blueprint received in
+            // a session that has since been pruned is gone for good. Belongs on the summary — it
+            // is about the result the user is looking at, not about configuring the next run.
             Spacer(Modifier.height(8.dp))
             Row(verticalAlignment = Alignment.Top, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 StatusDot(Krt.Gray2)
@@ -765,6 +790,7 @@ private fun runExtraction(
             }
             val export = result.export
             state.skippedFiles = result.skippedFiles
+            state.localization = result.localization
 
             if (export.logFilesScanned == 0) {
                 state.isError = true

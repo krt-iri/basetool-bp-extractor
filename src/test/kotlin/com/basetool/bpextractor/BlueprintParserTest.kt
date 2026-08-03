@@ -22,6 +22,17 @@ class BlueprintParserTest {
         return File(url.toURI())
     }
 
+    /** Parse ad-hoc log lines through a throwaway file, optionally with non-default patterns. */
+    private fun parseLines(
+        vararg lines: String,
+        patterns: List<Regex> = BlueprintParser.BUILT_IN_PATTERNS,
+    ): List<com.basetool.bpextractor.model.BlueprintEvent> {
+        val tmp = File.createTempFile("lines", ".log")
+        tmp.deleteOnExit()
+        tmp.writeText(lines.joinToString("\n"))
+        return BlueprintParser.parseFile(tmp, patterns).blueprints
+    }
+
     @Test
     fun `parses exactly one event per blueprint, ignoring the duplicate follow-up lines`() {
         val result = BlueprintParser.parseFile(sampleFile())
@@ -147,6 +158,46 @@ class BlueprintParserTest {
         val bp = BlueprintParser.parseFile(tmp).blueprints
         assertEquals(listOf("Attrition-5 Repeater"), bp.map { it.productName })
         assertEquals(4, bp.single().queueSize)
+    }
+
+    @Test
+    fun `the Swiss German variant of the same translation is recognised`() {
+        // live-CH in rjcncpt/StarCitizen-Deutsch-INI ships a different wording for the same key.
+        val bp = parseLines(
+            """<2026-05-02T20:11:04.132Z> [Notice] <SHUDEvent_OnNotification> Added notification """ +
+                """"Bauplan überchoo: Attrition-5 Repeater: " [136] to queue. New queue size: 1""",
+        )
+        assertEquals(listOf("Attrition-5 Repeater"), bp.map { it.productName })
+    }
+
+    @Test
+    fun `a format whose placeholder comes first still yields the name`() {
+        // No translation does this today, but a label-prefix rule could not express it at all.
+        val patterns = BlueprintParser.compile(listOf("%s ist eingetroffen"))
+        val bp = parseLines(
+            """<2026-05-02T20:11:04.132Z> [Notice] <SHUDEvent_OnNotification> Added notification """ +
+                """"Attrition-5 Repeater ist eingetroffen: " [136] to queue. New queue size: 1""",
+            patterns = patterns,
+        )
+        assertEquals(listOf("Attrition-5 Repeater"), bp.map { it.productName })
+        assertEquals(136, bp.single().notificationId)
+    }
+
+    @Test
+    fun `regex metacharacters in a format are matched literally`() {
+        val patterns = BlueprintParser.compile(listOf("Bauplan (neu) [!]: %s"))
+        val bp = parseLines(
+            """<2026-05-02T20:11:04.132Z> [Notice] <SHUDEvent_OnNotification> Added notification """ +
+                """"Bauplan (neu) [!]: Attrition-5 Repeater: " [7] to queue. New queue size: 1""",
+            patterns = patterns,
+        )
+        assertEquals(listOf("Attrition-5 Repeater"), bp.map { it.productName })
+    }
+
+    @Test
+    fun `a format without a placeholder is dropped instead of matching everything`() {
+        assertTrue(BlueprintParser.compile(listOf("Bauplan erhalten")).isEmpty())
+        assertEquals(1, BlueprintParser.compile(listOf("Bauplan erhalten", "X: %s")).size)
     }
 
     @Test
