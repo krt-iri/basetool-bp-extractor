@@ -75,6 +75,9 @@ object BlueprintExtractor {
      * sibling `HOTFIX` folder holding logs sits next to it, that channel's logs are appended too
      * (see [siblingHotfixFolder]). Current first, then backups by name; the export is re-sorted by
      * blueprint timestamp anyway.
+     *
+     * A folder that is neither shape but holds loose `*.log` files is read as an archive — see
+     * [looseLogsIn].
      */
     fun findLogFiles(channelFolder: File): List<File> {
         val files = collectChannelLogs(channelFolder).toMutableList()
@@ -85,6 +88,9 @@ object BlueprintExtractor {
     /**
      * The `Game.log` + every `*.log` in `logbackups` for a single channel folder, current first
      * then backups by name. Empty when [channelFolder] is not a directory or carries no logs.
+     *
+     * When the folder is neither — no `Game.log`, no `logbackups` — but holds `*.log` files
+     * directly, those are taken instead (see [looseLogsIn]).
      */
     private fun collectChannelLogs(channelFolder: File): List<File> {
         if (!channelFolder.isDirectory) return emptyList()
@@ -98,8 +104,24 @@ object BlueprintExtractor {
                 ?.sortedBy { it.name }
                 ?.let { files += it }
         }
-        return files
+        return files.ifEmpty { looseLogsIn(channelFolder) }
     }
+
+    /**
+     * Fallback for an **archive** folder: `*.log` files lying directly in [folder], used only when
+     * it has neither a `Game.log` nor a `logbackups` subfolder.
+     *
+     * SC never produces this shape, but people do — copying `logbackups` out before the game
+     * prunes it, or pulling the backups off a second PC. Without this the picker rejects a folder
+     * full of perfectly good logs as "the wrong folder", which is the harshest possible answer to
+     * a user who did the right thing. Deliberately **not** recursive: someone pointing at their
+     * whole `StarCitizen` root must not kick off a multi-GB walk across five channels.
+     */
+    private fun looseLogsIn(folder: File): List<File> =
+        folder.listFiles()
+            ?.filter { it.isFile && it.extension.equals("log", ignoreCase = true) }
+            ?.sortedBy { it.name }
+            .orEmpty()
 
     /**
      * If [channelFolder] is the LIVE channel directory, returns the sibling [SIBLING_CHANNEL_NAME]

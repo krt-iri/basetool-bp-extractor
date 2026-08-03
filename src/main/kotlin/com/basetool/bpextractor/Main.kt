@@ -42,6 +42,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.window.Window
 import androidx.compose.ui.window.application
 import androidx.compose.ui.window.rememberWindowState
+import com.basetool.bpextractor.config.AppConfigStore
 import com.basetool.bpextractor.resources.Res
 import com.basetool.bpextractor.resources.krt_icon
 import com.basetool.bpextractor.resources.made_by_the_community_black
@@ -142,8 +143,14 @@ private class AppState {
             return File(base, "blueprints.json").absolutePath
         }
 
-        /** Pre-fill the standard LIVE install path if it exists on this machine. */
+        /**
+         * Pre-fill the folder the last successful run used, else the standard LIVE install path
+         * if it exists on this machine. The remembered folder is only a suggestion: it is dropped
+         * silently when it no longer exists, and the blueprint step re-validates it either way.
+         */
         fun defaultChannelFolder(): String {
+            val remembered = runCatching { AppConfigStore().load().lastChannelFolder }.getOrNull()
+            if (!remembered.isNullOrBlank() && File(remembered).isDirectory) return remembered
             val standard = File("""C:\Program Files\Roberts Space Industries\StarCitizen\LIVE""")
             return if (standard.isDirectory) standard.absolutePath else ""
         }
@@ -182,7 +189,14 @@ private fun channelFolderHint(path: String, strings: Strings): FolderHint {
     val hasGameLog = File(dir, "Game.log").isFile
     val hasBackups = File(dir, "logbackups").isDirectory
     if (!hasGameLog && !hasBackups) {
-        return FolderHint(Krt.Orange, strings.bpHintWrongFolder, Krt.Gray1)
+        // Neither channel shape — but loose *.log files make this a usable archive folder
+        // (BlueprintExtractor.looseLogsIn), so say so instead of calling it the wrong folder.
+        val loose = dir.listFiles()?.count { it.isFile && it.extension.equals("log", ignoreCase = true) } ?: 0
+        return if (loose > 0) {
+            FolderHint(Krt.Success, strings.bpHintArchiveFolder(loose), Krt.Gray1)
+        } else {
+            FolderHint(Krt.Orange, strings.bpHintWrongFolder, Krt.Gray1)
+        }
     }
     val found = listOfNotNull(
         "Game.log".takeIf { hasGameLog },
@@ -560,6 +574,20 @@ private fun BpSummaryStep(state: AppState) {
                 )
             }
         }
+        // What a scan can never see: SC prunes its own logbackups, so a blueprint received in a
+        // session that has since been pruned is gone for good. Belongs on the summary — it is
+        // about the result the user is looking at, not about configuring the next run.
+        if (export != null) {
+            Spacer(Modifier.height(8.dp))
+            Row(verticalAlignment = Alignment.Top, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                StatusDot(Krt.Gray2)
+                Text(
+                    strings.bpSumRetentionNote,
+                    style = MaterialTheme.typography.bodySmall,
+                    color = Krt.Gray2,
+                )
+            }
+        }
         Spacer(Modifier.height(14.dp))
 
         if (export != null) {
@@ -754,6 +782,9 @@ private fun runExtraction(
             }
 
             state.isError = false
+            // Remember the folder only once a run actually produced logs, so a typo or a wrong
+            // pick never becomes next start's suggestion.
+            withContext(Dispatchers.IO) { rememberChannelFolder(folder.absolutePath) }
             // Nothing is written automatically — the summary step lets the user send or save (#639).
             state.status = ""
             state.resultFile = null
@@ -769,6 +800,20 @@ private fun runExtraction(
         } finally {
             state.running = false
         }
+    }
+}
+
+/**
+ * Persist [path] as the folder to pre-fill next start. Reads the config fresh immediately before
+ * writing so this never clobbers a field another writer (the send flow's consent) changed in the
+ * meantime, and swallows failures — a config write must never break an otherwise good run.
+ *
+ * Lives in the per-user data dir under `%APPDATA%`, never in the install dir (CLAUDE.md guardrail 2).
+ */
+private fun rememberChannelFolder(path: String) {
+    runCatching {
+        val store = AppConfigStore()
+        store.save(store.load().copy(lastChannelFolder = path))
     }
 }
 

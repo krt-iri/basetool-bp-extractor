@@ -1,0 +1,7 @@
+<2026-05-02T19:58:03.117Z> BackupNameAttachment=" Build(11875683) 02 May 26 (21 58 03)"  -- used by backup system
+<2026-05-02T19:58:12.004Z> [Notice] <AccountLoginCharacterStatus_Character> Character: createdAt 1774461894146 - updatedAt 1774461894715 - geid 100000000001 - accountId 100001 - name testpilot - state STATE_CURRENT [Team_GameServices][Login]
+<2026-05-02T20:11:04.132Z> [Notice] <SHUDEvent_OnNotification> Added notification "Bauplan erhalten: Attrition-5 Repeater: " [136] to queue. New queue size: 1, MissionId: [00000000-0000-0000-0000-000000000000], ObjectiveId: [] [Team_CoreGameplayFeatures][Missions][Comms]
+<2026-05-02T20:11:09.410Z> [Notice] <UpdateNotificationItem> Notification "Bauplan erhalten: Attrition-5 Repeater: " [136], Action: Next [Team_CoreGameplayFeatures][Missions][Comms]
+<2026-05-02T20:11:14.428Z> [Notice] <UpdateNotificationItem> Notification "Bauplan erhalten: Attrition-5 Repeater: " [136], Action: Remove [Team_CoreGameplayFeatures][Missions][Comms]
+<2026-05-02T20:19:47.865Z> [Notice] <SHUDEvent_OnNotification> Added notification "Bauplan erhalten: Scalpel Sniper Rifle Magazine (12 Schuss): " [141] to queue. New queue size: 2, MissionId: [00000000-0000-0000-0000-000000000000], ObjectiveId: [] [Team_CoreGameplayFeatures][Missions][Comms]
+<2026-05-02T20:24:11.002Z> [Notice] <SHUDEvent_OnNotification> Added notification "Journaleintrag hinzugefügt: Vermessung Aberdeen: " [142] to queue. New queue size: 1, MissionId: [00000000-0000-0000-0000-000000000000], ObjectiveId: [] [Team_CoreGameplayFeatures][Missions][Comms]

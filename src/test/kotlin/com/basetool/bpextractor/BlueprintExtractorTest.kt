@@ -67,6 +67,53 @@ class BlueprintExtractorTest {
     }
 
     @Test
+    fun `a flat archive folder of loose logs is read`() {
+        val archive = tempChannel()
+        try {
+            File(archive, "Game Build(1) 05 Dec 25 (15 44 14).log").writeText("x")
+            File(archive, "Game Build(2) 06 Dec 25 (08 55 41).log").writeText("x")
+            File(archive, "notes.txt").writeText("x") // ignored: not a .log
+
+            val files = BlueprintExtractor.findLogFiles(archive)
+
+            assertEquals(2, files.size)
+            assertEquals(listOf("Game Build(1) 05 Dec 25 (15 44 14).log", "Game Build(2) 06 Dec 25 (08 55 41).log"), files.map { it.name })
+        } finally {
+            archive.deleteRecursively()
+        }
+    }
+
+    @Test
+    fun `loose logs are ignored once the folder is a real channel folder`() {
+        // The fallback must never widen a normal scan: a stray .log next to Game.log stays out.
+        val channel = tempChannel()
+        try {
+            File(channel, "Game.log").writeText("x")
+            File(channel, "logbackups").mkdirs()
+            File(channel, "stray.log").writeText("x")
+
+            val files = BlueprintExtractor.findLogFiles(channel)
+
+            assertEquals(listOf("Game.log"), files.map { it.name })
+        } finally {
+            channel.deleteRecursively()
+        }
+    }
+
+    @Test
+    fun `the archive fallback does not recurse`() {
+        // Pointing at a StarCitizen root must not walk every channel below it.
+        val root = tempChannel()
+        try {
+            val live = File(root, "LIVE/logbackups").apply { mkdirs() }
+            File(live, "Game Build(1) a.log").writeText("x")
+            assertTrue(BlueprintExtractor.findLogFiles(root).isEmpty())
+        } finally {
+            root.deleteRecursively()
+        }
+    }
+
+    @Test
     fun `does not scan nested folders other than logbackups`() {
         val channel = tempChannel()
         try {

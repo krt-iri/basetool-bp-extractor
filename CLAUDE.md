@@ -52,12 +52,16 @@ Run from the **repo root** (not a subfolder), with **JDK 25** active. On Windows
    committed (test fixtures, README imagery) must be synthetic or fully redacted. The
    same applies to anything derived from them that quotes personal fields.
 2. **The app must write nothing into its own install directory.** Clean uninstall is a
-   verified feature and works *because* the program is stateless on disk (no config,
-   no logs next to the exe). Exported JSON goes to the user-chosen path only. If you
-   ever add state, put it under the user's data dir — never the install dir — or
-   residue-free uninstall breaks. Pasted/dropped refinery images without a picked
-   folder follow this rule via a session temp dir (`ImageIntake.tempFolder()`) that a
-   shutdown hook removes — reuse that pattern for anything similar.
+   verified feature and works *because* nothing lands next to the exe (no config, no
+   logs). Exported JSON goes to the user-chosen path only. What little state the app does
+   keep lives under the user's data dir — `config/AppConfig.kt` writes
+   `%APPDATA%\Basetool SC Extractor\config.json` (ingest URL, send consent, the last
+   channel folder) — **never** the install dir, or residue-free uninstall breaks. Two
+   holders write that file (the blueprint step and the send flow), so every write is
+   load → `copy(…)` → save; skip the reload and one silently drops the other's field.
+   Pasted/dropped refinery images without a picked folder follow this rule via a session
+   temp dir (`ImageIntake.tempFolder()`) that a shutdown hook removes — reuse that pattern
+   for anything similar.
 3. **JDK 25 must drive both compile and the bundled runtime.** `kotlin.jvmToolchain(25)`
    handles compile/bytecode; `compose.desktop.application.javaHome` is *separately*
    pinned to the JDK 25 toolchain. If you drop the `javaHome` pin, jpackage builds the
@@ -93,7 +97,9 @@ Run from the **repo root** (not a subfolder), with **JDK 25** active. On Windows
   disk writes — keep it that way (it's the easiest part to unit-test).
 - **`BlueprintExtractor.kt`** — orchestration: `findLogFiles(channelFolder)` (when the
   folder is LIVE it also appends a sibling `HOTFIX` channel's logs via
-  `siblingHotfixFolder`) → parse each → aggregate per-player counts → sort
+  `siblingHotfixFolder`; a folder with neither `Game.log` nor `logbackups/` but loose
+  `*.log` files in it is read as an **archive**, non-recursively, via `looseLogsIn`)
+  → parse each → aggregate per-player counts → sort
   chronologically → assemble `BlueprintExport`. `extract` returns `ExtractionResult`
   (export + `skippedFiles`): an unreadable log is skipped and reported, never fatal,
   and events whose identity (player/name/timestamp/notification id) was already seen
@@ -199,10 +205,39 @@ Run from the **repo root** (not a subfolder), with **JDK 25** active. On Windows
   `: " [<digits>]`. Any regex change must keep the existing edge-case tests green.
 - `MissionId` on a blueprint line is always all-zero ⇒ useless. The **player** comes from
   login lines (`User Login Success - Handle[…]`, the char-status line, or `nickname="…"`),
-  first match wins. The **build number** comes from the file name `Game Build(<n>)`.
+  first match wins. The **build number** comes from the file name `Game Build(<n>)`, and —
+  for the live `Game.log`, whose name carries none — from the `BackupNameAttachment="…
+  Build(<n>) …"` header on line 1 (present in all 424 corpus files, always agreeing with the
+  file name). File name wins; the header is read once, on the first line only.
+- **The label is localised, the line around it is not.** `Received Blueprint` comes from the
+  game's localisation tables (`g_language` in `user.cfg` — what the *SC Deutsch Launcher* and
+  the community language packs install); `Added notification "…: <name>: " [<id>] to queue.
+  New queue size:` is a C++ format literal and stays English in every language.
+  `BLUEPRINT_LABELS` is therefore a **closed whitelist** (EN + DE confirmed): add a language
+  only once a real log in that language has been seen — a guessed translation is dead weight
+  at best. Matching the label is case-insensitive; the `Added notification "` prefilter is
+  **not**, deliberately, because it runs on every one of ~7.9M lines and guards a string that
+  cannot vary. Getting this wrong is a *silent* failure: a non-English client yields zero
+  blueprints and the GUI reports a successful export.
+- Do NOT anchor on the bare skeleton without the label whitelist: `Added notification "` alone
+  matches ~19,000 non-blueprint notifications in the corpus (~105 false positives per real
+  blueprint). The ~6× overcounting guard is owned by `Added notification`, the false-positive
+  guard by the whitelist — both are needed.
+- Class/Size/Grade rides along **inside the name as a prefix** (`Sth/2/C Cirrus`; 23 of 177
+  distinct names, classes Ind/Mil/Sth). The parenthesised *suffix* form (`… (Civ/3/A)`) that
+  other tools strip does not occur once in 1.82 GB of English logs — don't port a suffix regex.
+  `productName` stays byte-verbatim either way: it is the basetool's matching key.
+- The account-wide blueprint library is **not** in the log — the game fetches it from a backend
+  service and only a channel-reuse line reaches the file. The export therefore means "received
+  while a log existed", never "owned". Negative result, already searched; don't redo it.
+- PTU/EPTU/TECH-PREVIEW were measured (5 / 0 / 1 blueprint events against HOTFIX's 43): the
+  `LIVE` + sibling `HOTFIX` sweep stays as is. Pointing the picker at a test channel already
+  works, so those stay opt-in.
 - Characterization check: the real (private) `game-log/` dump yields exactly **179
   blueprints** for player **`greluc`**. If a parser change moves that number, understand
-  why before accepting it.
+  why before accepting it. Note the dump is a *flat* archive folder (no `Game.log`, no
+  `logbackups/`) — it is readable because `collectChannelLogs` falls back to loose `*.log`
+  files; before that fallback existed the folder scanned to zero.
 
 ## UI / design
 

@@ -136,6 +136,7 @@ interface Strings {
     val bpCtxNoRun: String
     val bpSumSuccessTitle: String
     val bpSumSuccessDetail: (Int, Int) -> String
+    val bpSumRetentionNote: String
     val bpLabelChannelFolder: String
     val bpPlaceholderChannel: String
     val bpLabelOutputJson: String
@@ -150,6 +151,7 @@ interface Strings {
     val bpHintFolderMissing: String
     val bpHintWrongFolder: String
     val bpHintValidFolder: (String) -> String
+    val bpHintArchiveFolder: (Int) -> String
     val bpHotfixNote: String
     val bpErrSelectChannel: String
     val bpErrFolderNotFound: (String) -> String
@@ -429,12 +431,16 @@ object StringsDe : Strings {
     override val bpCtxItems = listOf(
         "Game.log im Channel-Ordner",
         "Alle logbackups\\*.log (plus HOTFIX-Ordner daneben)",
+        "Oder ein Archivordner mit losen *.log-Dateien",
         "Nur Blueprint-Notifications — sonst nichts",
     )
     override val bpCtxLastRun = "Letzter Lauf"
     override val bpCtxNoRun = "Noch kein Lauf in dieser Sitzung."
     override val bpSumSuccessTitle = "Export erfolgreich geschrieben"
     override val bpSumSuccessDetail: (Int, Int) -> String = { count, files -> "$count Blueprint(s) · $files Log(s) gescannt" }
+    override val bpSumRetentionNote =
+        "Gelesen wurde, was noch auf der Platte liegt: Star Citizen räumt alte Logs weg. " +
+            "Wer regelmäßig extrahiert, verliert nichts — ältere Sitzungen sind nicht mehr nachholbar."
     override val bpLabelChannelFolder = "Star-Citizen-Channel-Ordner"
     override val bpPlaceholderChannel = "z. B. C:\\Program Files\\Roberts Space Industries\\StarCitizen\\LIVE"
     override val bpLabelOutputJson = "Ausgabe-JSON (Ziel)"
@@ -445,10 +451,15 @@ object StringsDe : Strings {
     override val bpPickerSaveTitle = "JSON-Ausgabedatei wählen"
     override val bpPickerSaveConfirm = "Speichern"
     override val bpCta = "Blueprints extrahieren"
-    override val bpHintReadsLogs = "Liest die Game.log in diesem Ordner und alle Logs im Unterordner „logbackups\"."
+    override val bpHintReadsLogs =
+        "Liest die Game.log in diesem Ordner und alle Logs im Unterordner „logbackups\" — " +
+            "oder lose *.log-Dateien, wenn du einen Archivordner wählst."
     override val bpHintFolderMissing = "Ordner existiert nicht."
-    override val bpHintWrongFolder = "Ordner gefunden, aber keine Game.log/logbackups — evtl. der falsche Ordner."
+    override val bpHintWrongFolder = "Ordner gefunden, aber weder Game.log/logbackups noch *.log-Dateien darin."
     override val bpHintValidFolder: (String) -> String = { found -> "Gültiger Channel-Ordner ($found erkannt)." }
+    override val bpHintArchiveFolder: (Int) -> String = { count ->
+        "Archivordner mit $count losen Log-Datei(en) — wird gelesen wie ein „logbackups\"-Ordner."
+    }
     override val bpHotfixNote = "HOTFIX-Ordner daneben gefunden — dessen Logs werden zusätzlich ausgelesen."
     override val bpErrSelectChannel = "Bitte einen Channel-Ordner auswählen."
     override val bpErrFolderNotFound: (String) -> String = { path -> "Ordner nicht gefunden: $path" }
@@ -460,7 +471,7 @@ object StringsDe : Strings {
     override val bpStatusSearching = "Suche Log-Dateien…"
     override val bpStatusEvaluating = "Werte aus…"
     override val bpStatusProcessing: (Int, Int, String) -> String = { done, total, label -> "Verarbeite Datei $done/$total: $label" }
-    override val bpStatusNoLogs = "Keine Game.log und kein „logbackups\"-Ordner im Channel-Ordner gefunden."
+    override val bpStatusNoLogs = "Keine Game.log, kein „logbackups\"-Ordner und keine losen *.log-Dateien gefunden."
     override val bpStatusAllSkipped: (Int) -> String = { count -> "Keine Log-Datei lesbar — $count Datei(en) übersprungen." }
     override val bpSkippedNote: (Int, String) -> String = { count, names -> "$count Log(s) übersprungen (nicht lesbar): $names" }
     override val bpToastNoLogsTitle = "Keine Logs gefunden"
@@ -816,12 +827,16 @@ object StringsEn : Strings {
     override val bpCtxItems = listOf(
         "Game.log in the channel folder",
         "Every logbackups\\*.log (plus a HOTFIX folder next to it)",
+        "Or an archive folder of loose *.log files",
         "Blueprint notifications only — nothing else",
     )
     override val bpCtxLastRun = "Last run"
     override val bpCtxNoRun = "No run in this session yet."
     override val bpSumSuccessTitle = "Export written successfully"
     override val bpSumSuccessDetail: (Int, Int) -> String = { count, files -> "$count blueprint(s) · $files log(s) scanned" }
+    override val bpSumRetentionNote =
+        "This read what is still on disk: Star Citizen prunes old logs. Extract regularly and you " +
+            "lose nothing — sessions already pruned cannot be recovered later."
     override val bpLabelChannelFolder = "Star Citizen channel folder"
     override val bpPlaceholderChannel = "e.g. C:\\Program Files\\Roberts Space Industries\\StarCitizen\\LIVE"
     override val bpLabelOutputJson = "Output JSON (target)"
@@ -832,10 +847,15 @@ object StringsEn : Strings {
     override val bpPickerSaveTitle = "Choose output JSON file"
     override val bpPickerSaveConfirm = "Save"
     override val bpCta = "Extract blueprints"
-    override val bpHintReadsLogs = "Reads the Game.log in this folder and every log in its \"logbackups\" subfolder."
+    override val bpHintReadsLogs =
+        "Reads the Game.log in this folder and every log in its \"logbackups\" subfolder — " +
+            "or loose *.log files if you pick an archive folder."
     override val bpHintFolderMissing = "Folder does not exist."
-    override val bpHintWrongFolder = "Folder found, but no Game.log/logbackups — possibly the wrong folder."
+    override val bpHintWrongFolder = "Folder found, but neither Game.log/logbackups nor any *.log files in it."
     override val bpHintValidFolder: (String) -> String = { found -> "Valid channel folder ($found detected)." }
+    override val bpHintArchiveFolder: (Int) -> String = { count ->
+        "Archive folder with $count loose log file(s) — read like a \"logbackups\" folder."
+    }
     override val bpHotfixNote = "HOTFIX folder found next to it — its logs are read as well."
     override val bpErrSelectChannel = "Please select a channel folder."
     override val bpErrFolderNotFound: (String) -> String = { path -> "Folder not found: $path" }
@@ -847,7 +867,7 @@ object StringsEn : Strings {
     override val bpStatusSearching = "Searching log files…"
     override val bpStatusEvaluating = "Evaluating…"
     override val bpStatusProcessing: (Int, Int, String) -> String = { done, total, label -> "Processing file $done/$total: $label" }
-    override val bpStatusNoLogs = "No Game.log and no \"logbackups\" folder found in the channel folder."
+    override val bpStatusNoLogs = "No Game.log, no \"logbackups\" folder and no loose *.log files found."
     override val bpStatusAllSkipped: (Int) -> String = { count -> "No log file readable — $count file(s) skipped." }
     override val bpSkippedNote: (Int, String) -> String = { count, names -> "$count log(s) skipped (unreadable): $names" }
     override val bpToastNoLogsTitle = "No logs found"

@@ -22,6 +22,9 @@ import java.io.InputStream
  *    `Sth/2/C Cirrus`, `ADP-mk4 Core Woodland`),
  *  - it can carry a trailing space (`Antium Legs Moss Camo `) which we trim.
  *
+ * The `Received Blueprint` label in front of the name is **localised** — everything around it
+ * is a C++ format literal and stays English. See [BLUEPRINT_LABELS].
+ *
  * The MissionId on a blueprint line is always all-zero, so it is useless for
  * attribution — which is fine, because mission data is explicitly out of scope.
  * The *receiving player* instead comes from the login lines of the same file.
@@ -32,32 +35,84 @@ object BlueprintParser {
     private val TIMESTAMP = Regex("""^<([^>]+)>""")
 
     /**
+     * The localised labels the game puts in front of the item name. Star Citizen renders this
+     * label from its localisation tables (`g_language` in `user.cfg`), while the line around it
+     * — `Added notification "<label>: <name>: " [<id>] to queue. New queue size: …` — is a C++
+     * format literal and stays English in every language. Matching only the English label is
+     * therefore a *silent total* failure on a localised client: no error, no skipped file, just
+     * an export with zero blueprints.
+     *
+     * Deliberately a **closed whitelist**: a label goes in here only once it has been seen in a
+     * real log of that client language. A guessed translation is at best dead weight and at
+     * worst matches the wrong notification kind — and the whitelist is what keeps the
+     * anti-overcounting guarantee below narrow.
+     */
+    private val BLUEPRINT_LABELS = listOf("Received Blueprint", "Bauplan erhalten")
+
+    /**
      * The one authoritative "you received a blueprint" line. Anchored on
      * `Added notification` so the noisy follow-up lines (the bare queue echo and
      * the later `UpdateNotificationItem` Next/StartFade/Remove lines) are ignored
      * — they all repeat the same text and would otherwise inflate the count ~6x.
+     * (Measured on the private corpus: 1063 blueprint mentions for 179 real events.)
      *
      * Group 1 = item name (non-greedy, up to the `: " [<digits>]` terminator),
      * Group 2 = notification id.
      */
-    private val BLUEPRINT = Regex("""Added notification "Received Blueprint: (.+?): " \[(\d+)]""")
+    private val BLUEPRINT = Regex(
+        """Added notification "(?i:""" +
+            BLUEPRINT_LABELS.joinToString("|") { Regex.escape(it) } +
+            """): (.+?): " \[(\d+)]""",
+    )
 
     /**
      * Cheap literal prefilter for [BLUEPRINT]: a plain substring check skips the regex for
-     * >99.9% of lines (logs run to hundreds of MB). Must stay a literal prefix of the regex.
+     * ~99.5% of lines (logs run to hundreds of MB). Must stay a literal prefix of the regex —
+     * which is why it stops before the label, now that the label is a set rather than one
+     * string. Measured over the 424-file corpus: 41 560 of 7 863 351 lines reach the regex,
+     * against 179 before; the scan is I/O-bound, so the cost does not show up.
+     *
+     * **Case:** this check is exact, and correspondingly the leading `Added notification "` in
+     * [BLUEPRINT] is the one part *not* wrapped in `(?i:…)`. That is not an oversight — it is the
+     * invariant that keeps the two consistent. `Added notification "` is a compile-time format
+     * literal in the game binary and cannot vary; the label after it comes from the translation
+     * tables and can, which is exactly the part matched case-insensitively. Making the prefilter
+     * itself case-insensitive would give up the intrinsified `String.indexOf` on every one of
+     * ~7.9M lines to guard a string that cannot change.
      */
-    private const val BLUEPRINT_MARKER = """Added notification "Received Blueprint: """
+    private const val BLUEPRINT_MARKER = "Added notification \""
 
-    /** Optional sibling fields on the same blueprint line. */
-    private val QUEUE_SIZE = Regex("""New queue size: (\d+)""")
+    /**
+     * Optional sibling fields on the same blueprint line. Only ever run on a line [BLUEPRINT]
+     * already matched, so case-insensitivity here is free.
+     */
+    private val QUEUE_SIZE = Regex("""New queue size: (\d+)""", RegexOption.IGNORE_CASE)
 
-    /** Build number embedded in the SC backup-log file name: `Game Build(11518367) ...`. */
-    private val BUILD_FROM_NAME = Regex("""Build\((\d+)\)""")
+    /**
+     * Build number embedded in the SC backup-log file name: `Game Build(11518367) ...` — and in
+     * the header line described by [BUILD_HEADER_MARKER], which carries the same shape.
+     */
+    private val BUILD_FROM_NAME = Regex("""Build\((\d+)\)""", RegexOption.IGNORE_CASE)
+
+    /**
+     * Every SC log declares on its **first** line the name it will later be backed up as:
+     * `<ts> BackupNameAttachment=" Build(11518367) 26 Mar 26 (17 24 58)"  -- used by backup system`.
+     *
+     * The rotated backups carry that build in their own file name, but the live `Game.log` does
+     * not — so without reading the header, every event from the session the player just finished
+     * exports `gameBuild = null`. Verified across the whole private corpus: the header is present
+     * in all 424 files and always states the same build as the file name.
+     */
+    private const val BUILD_HEADER_MARKER = "BackupNameAttachment="
 
     // --- Player identity lines (first match in a file wins) ----------------
+    //
+    // All three are matched case-insensitively. Like [BLUEPRINT] they sit behind an exact literal
+    // guard in [extractPlayer] (see there): the guard is the hot-path filter and pins the case of
+    // the regex's own leading literal, so the two can never disagree.
 
     /** `<Legacy login response> ... User Login Success - Handle[greluc] - ...` */
-    private val LOGIN_HANDLE = Regex("""User Login Success - Handle\[([^\]]+)]""")
+    private val LOGIN_HANDLE = Regex("""User Login Success - Handle\[([^\]]+)]""", RegexOption.IGNORE_CASE)
 
     /**
      * `<AccountLoginCharacterStatus_Character> Character: ... geid 202153876894 -
@@ -67,11 +122,12 @@ object BlueprintParser {
      * are deliberately not stored or exported.
      */
     private val CHAR_STATUS = Regex(
-        """geid (\d+) - accountId (\d+) - name (\S+) - state STATE_CURRENT"""
+        """geid (\d+) - accountId (\d+) - name (\S+) - state STATE_CURRENT""",
+        RegexOption.IGNORE_CASE,
     )
 
     /** `... nickname="greluc" playerGEID=202153876894 ...` (network handshake fallback). */
-    private val NICKNAME = Regex("""nickname="([^"]+)"""")
+    private val NICKNAME = Regex("""nickname="([^"]+)"""", RegexOption.IGNORE_CASE)
 
     /** Identity of the player a single log file belongs to. */
     data class PlayerIdentity(
@@ -93,7 +149,10 @@ object BlueprintParser {
      * internal buffering (a few KB per step), which is plenty for a progress bar.
      */
     fun parseFile(file: File, onBytesRead: ((bytesRead: Long) -> Unit)? = null): FileResult {
-        val gameBuild = BUILD_FROM_NAME.find(file.name)?.groupValues?.get(1)
+        var gameBuild = BUILD_FROM_NAME.find(file.name)?.groupValues?.get(1)
+        // Only the live Game.log lacks a build in its name; then, and only then, we look at the
+        // header. Bounded to the very first line so this never touches the hot path.
+        var buildHeaderPending = gameBuild == null
         val blueprints = mutableListOf<BlueprintEvent>()
         var player: PlayerIdentity? = null
 
@@ -102,6 +161,13 @@ object BlueprintParser {
         }
         input.bufferedReader(Charsets.UTF_8).useLines { lines ->
             for (line in lines) {
+                if (buildHeaderPending) {
+                    buildHeaderPending = false
+                    if (line.contains(BUILD_HEADER_MARKER, ignoreCase = true)) {
+                        gameBuild = BUILD_FROM_NAME.find(line)?.groupValues?.get(1)
+                    }
+                }
+
                 // Resolve the player once, from whichever identity line shows up first.
                 if (player == null) {
                     player = extractPlayer(line)
@@ -140,7 +206,10 @@ object BlueprintParser {
 
     private fun extractPlayer(line: String): PlayerIdentity? {
         // Each regex sits behind a literal substring guard — identity lines are rare,
-        // so the regexes must not run on every line of a multi-hundred-MB log.
+        // so the regexes must not run on every line of a multi-hundred-MB log. The guards stay
+        // case-exact for the same reason [BLUEPRINT_MARKER] does: they run per line in a file
+        // whose player is still unresolved, and they guard engine-side format literals that
+        // cannot vary in case. The regexes behind them are case-insensitive.
         if ("geid " in line) {
             CHAR_STATUS.find(line)?.let {
                 return PlayerIdentity(handle = it.groupValues[3])
