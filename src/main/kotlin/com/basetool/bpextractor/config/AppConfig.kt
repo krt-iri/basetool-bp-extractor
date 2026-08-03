@@ -14,11 +14,16 @@ import java.io.File
  *
  * @param ingestBaseUrl base URL of the ingest gateway the export is sent to
  * @param consentGiven {@code true} once the user accepted the first-send consent
+ * @param lastChannelFolder the channel/archive folder the last successful extraction ran against,
+ *   pre-filled on the next start; {@code null} until the first run. A convenience only — the
+ *   blueprint step re-validates the path, so a stale or since-deleted folder just falls back to
+ *   the standard install path.
  */
 @Serializable
 data class AppConfig(
     val ingestBaseUrl: String = DEFAULT_INGEST_BASE_URL,
     val consentGiven: Boolean = false,
+    val lastChannelFolder: String? = null,
 ) {
     companion object {
         /** Prod ingest gateway host (behind nginx-proxy-manager); override in config.json for dev. */
