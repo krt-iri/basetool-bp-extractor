@@ -105,6 +105,13 @@ Run from the **repo root** (not a subfolder), with **JDK 25** active. On Windows
   and events whose identity (player/name/timestamp/notification id) was already seen
   in another file are counted once (guards against manually copied logs).
   `writeJson`/`toJson` serialize the export to disk/string. No line-level parsing here.
+- **`ScLocalization.kt`** — reads the game's own localisation so the blueprint label is never
+  guessed: `g_language` from `<channel>\user.cfg` and the
+  `crafting_hud_notification_received_blueprint` value from every
+  `<channel>\data\Localization\*\global.ini`. Streams the ~11 MB files behind a literal guard and
+  stops at the key; handles the UTF-8 BOM and both `key=` and `key,FLAG=` shapes. Read-only and
+  best-effort — a missing folder, unreadable file or absent key yields an empty result, never an
+  exception. The pure line parsers are separate and unit-tested without a disk.
 - **`model/Models.kt`** — `@Serializable` data classes (`BlueprintEvent`,
   `PlayerSummary`, `BlueprintExport`). The exported JSON *is* this shape.
 - **`update/UpdateChecker.kt`** — the GUI's startup update check against this repo's
@@ -209,16 +216,35 @@ Run from the **repo root** (not a subfolder), with **JDK 25** active. On Windows
   for the live `Game.log`, whose name carries none — from the `BackupNameAttachment="…
   Build(<n>) …"` header on line 1 (present in all 424 corpus files, always agreeing with the
   file name). File name wins; the header is read once, on the first line only.
-- **The label is localised, the line around it is not.** `Received Blueprint` comes from the
-  game's localisation tables (`g_language` in `user.cfg` — what the *SC Deutsch Launcher* and
-  the community language packs install); `Added notification "…: <name>: " [<id>] to queue.
-  New queue size:` is a C++ format literal and stays English in every language.
-  `BLUEPRINT_LABELS` is therefore a **closed whitelist** (EN + DE confirmed): add a language
-  only once a real log in that language has been seen — a guessed translation is dead weight
-  at best. Matching the label is case-insensitive; the `Added notification "` prefilter is
-  **not**, deliberately, because it runs on every one of ~7.9M lines and guards a string that
-  cannot vary. Getting this wrong is a *silent* failure: a non-English client yields zero
-  blueprints and the GUI reports a successful export.
+- **The label is localised, the line around it is not.** The text comes from the game's
+  localisation tables under the invariant key `crafting_hud_notification_received_blueprint`,
+  whose value is a *format*: `Received Blueprint: %s` / `Bauplan erhalten: %s`. The wrapper —
+  `Added notification "<rendered>: " [<id>] to queue. New queue size:` — is a C++ format literal
+  and stays English in every language. Since `%s` is the **last** thing the localised value
+  contributes, everything after the item name is engine-side and *cannot* vary by language;
+  that is why the `: " [<id>]` terminator is safe to anchor on. Getting the label wrong is a
+  *silent* failure: a non-English client yields zero blueprints and the GUI reports a
+  successful export.
+- **Don't ship guesses — read the install.** `ScLocalization.detect(channelFolder)` reads
+  `user.cfg` (`g_language`) and every `data/Localization/*/global.ini` in the picked folder, so
+  the app matches the string the game will actually write. All installed languages are read, not
+  just the active one: a scan spans months and the player may have switched. A rewording by CIG
+  or by the translators then needs no release here. `BlueprintParser.BUILT_IN_FORMATS` is only
+  the fallback — vanilla English (its `global.ini` lives inside `Data.p4k`) and archive folders
+  with no game next to them. It stays a **closed whitelist**: entries go in on authoritative
+  evidence only — the localisation source (`rjcncpt/StarCitizen-Deutsch-INI`, what the *SC
+  Deutsch Launcher* installs; note it ships a Swiss variant, `Bauplan überchoo`) or a real log.
+  Verified there: exactly one key produces each of those values, so none can collide with
+  another notification kind.
+- Formats are split at `%s`, not treated as a prefix, so a translation that puts the name first
+  would work too. Matching the localised part is case-insensitive; the `Added notification "`
+  prefilter is **not**, deliberately, because it runs on every one of ~7.9M lines and guards a
+  string that cannot vary.
+- **German item names differ from English ones**, so a German player's `productName` will not
+  always match the basetool catalogue: of our 177 corpus names, 127 resolve in the English
+  `global.ini` and 13 of those are written differently in German — all of them the
+  `(30 cap)` → `(30 Schuss)` suffix. Not fixable here (`productName` must stay byte-verbatim,
+  it *is* the matching key); tracked on the basetool side.
 - Do NOT anchor on the bare skeleton without the label whitelist: `Added notification "` alone
   matches ~19,000 non-blueprint notifications in the corpus (~105 false positives per real
   blueprint). The ~6× overcounting guard is owned by `Added notification`, the false-positive

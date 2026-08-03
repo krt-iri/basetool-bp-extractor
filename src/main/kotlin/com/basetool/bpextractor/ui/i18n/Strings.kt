@@ -137,6 +137,9 @@ interface Strings {
     val bpSumSuccessTitle: String
     val bpSumSuccessDetail: (Int, Int) -> String
     val bpSumRetentionNote: String
+    val bpSumZeroTitle: String
+    val bpSumZeroBody: String
+    val bpSumZeroLanguage: (String) -> String
     val bpLabelChannelFolder: String
     val bpPlaceholderChannel: String
     val bpLabelOutputJson: String
@@ -441,6 +444,13 @@ object StringsDe : Strings {
     override val bpSumRetentionNote =
         "Gelesen wurde, was noch auf der Platte liegt: Star Citizen räumt alte Logs weg. " +
             "Wer regelmäßig extrahiert, verliert nichts — ältere Sitzungen sind nicht mehr nachholbar."
+    override val bpSumZeroTitle = "Keine Blueprints in den gelesenen Logs"
+    override val bpSumZeroBody =
+        "Das ist der Normalfall, wenn in diesen Sitzungen keine Blueprints erhalten wurden — " +
+            "und Star Citizen räumt alte Logs irgendwann weg. Falls du sicher welche erhalten hast: " +
+            "Die Meldung im Log ist übersetzt; die Sprachdatei deiner Installation wird dafür " +
+            "mitgelesen. Meld dich mit einer Beispielzeile, wenn es trotzdem leer bleibt."
+    override val bpSumZeroLanguage: (String) -> String = { lang -> "Spielsprache laut user.cfg: $lang" }
     override val bpLabelChannelFolder = "Star-Citizen-Channel-Ordner"
     override val bpPlaceholderChannel = "z. B. C:\\Program Files\\Roberts Space Industries\\StarCitizen\\LIVE"
     override val bpLabelOutputJson = "Ausgabe-JSON (Ziel)"
@@ -837,6 +847,13 @@ object StringsEn : Strings {
     override val bpSumRetentionNote =
         "This read what is still on disk: Star Citizen prunes old logs. Extract regularly and you " +
             "lose nothing — sessions already pruned cannot be recovered later."
+    override val bpSumZeroTitle = "No blueprints in the logs that were read"
+    override val bpSumZeroBody =
+        "That is the normal case when no blueprints were received in these sessions — and Star " +
+            "Citizen prunes old logs eventually. If you are sure you received some: the log " +
+            "message is translated, and your installation's language file is read to match it. " +
+            "Get in touch with an example line if it still comes up empty."
+    override val bpSumZeroLanguage: (String) -> String = { lang -> "Game language per user.cfg: $lang" }
     override val bpLabelChannelFolder = "Star Citizen channel folder"
     override val bpPlaceholderChannel = "e.g. C:\\Program Files\\Roberts Space Industries\\StarCitizen\\LIVE"
     override val bpLabelOutputJson = "Output JSON (target)"

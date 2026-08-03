@@ -269,12 +269,17 @@ behandelt die realen Eigenheiten dieser Zeilen:
   `UpdateNotificationItem`-Folgezeilen mit `Next`/`StartFade`/`Remove`). Nur die
   `Added notification`-Zeile wird gezählt, damit jeder Blueprint **genau einmal**
   gezählt wird (sonst ~6-fach).
-- **Spielsprache** — das Etikett vor dem Namen (`Received Blueprint`) kommt aus den
-  Lokalisierungstabellen des Spiels und ist übersetzt, wenn du einen
-  Sprachpatch nutzt (`g_language` in der `user.cfg`); die Zeile drumherum bleibt
-  englisch. Erkannt werden Englisch und Deutsch (`Bauplan erhalten`), Groß- und
-  Kleinschreibung egal. Weitere Sprachen kommen dazu, sobald uns ein echtes Log
-  in dieser Sprache vorliegt — geraten wird nicht.
+- **Spielsprache — wird aus deiner Installation gelesen.** Das Etikett vor dem
+  Namen (`Received Blueprint`) stammt aus den Lokalisierungstabellen des Spiels und
+  ist übersetzt, wenn du einen Sprachpatch nutzt; die Zeile drumherum bleibt
+  englisch. Statt Übersetzungen zu raten, liest die App den Schlüssel
+  `crafting_hud_notification_received_blueprint` direkt aus den
+  `data\Localization\*\global.ini` deines gewählten Ordners — also genau den Text,
+  den dein Spiel schreiben wird. Ändert sich die Formulierung, greift das beim
+  nächsten Lauf, ohne neue Version. Gelesen werden **alle** installierten Sprachen,
+  nicht nur die aktive: ein Scan reicht Monate zurück. Ohne lesbare `global.ini`
+  (unverändertes englisches Spiel, oder ein Archivordner) greifen die eingebauten
+  Texte für Englisch, Deutsch und Schweizerdeutsch.
 - **Namen mit Anführungszeichen** (`Yubarev "Mirage" Pistol`), **Klammern**
   (`Yubarev Pistol Battery (10 cap)`), **Slashes** (`Sth/2/C Cirrus`) und
   **Bindestrichen** (`ADP-mk4 Core Woodland`) werden korrekt erfasst. Der Name

@@ -67,6 +67,53 @@ class BlueprintExtractorTest {
     }
 
     @Test
+    fun `a label the built-in list has never heard of is read from the installation`() {
+        // The whole point of reading global.ini: a rewording, or a language we never shipped,
+        // works without a release here.
+        val channel = tempChannel()
+        try {
+            val lang = File(channel, "data/Localization/klingon").apply { mkdirs() }
+            File(lang, "global.ini")
+                .writeText("crafting_hud_notification_received_blueprint=wa' Bauplan {qImHa'}: %s")
+            File(channel, "user.cfg").writeText("g_language = klingon\n")
+            File(channel, "Game.log").writeText(
+                "<2026-05-02T20:11:04.132Z> [Notice] <SHUDEvent_OnNotification> Added notification " +
+                    "\"wa' Bauplan {qImHa'}: Attrition-5 Repeater: \" [136] to queue. New queue size: 1",
+            )
+
+            val result = BlueprintExtractor.extract(channel)
+
+            assertEquals(1, result.export.blueprintCount)
+            assertEquals("Attrition-5 Repeater", result.export.blueprints.single().productName)
+            assertEquals("klingon", result.localization.activeLanguage)
+            assertTrue(result.formatsUsed.contains("wa' Bauplan {qImHa'}: %s"))
+            // The built-ins stay in play — old logs in another language sit in the same folder.
+            assertTrue(result.formatsUsed.containsAll(BlueprintParser.BUILT_IN_FORMATS))
+        } finally {
+            channel.deleteRecursively()
+        }
+    }
+
+    @Test
+    fun `an install without a readable global_ini still matches the built-in labels`() {
+        val channel = tempChannel()
+        try {
+            File(channel, "Game.log").writeText(
+                "<2026-05-02T20:11:04.132Z> [Notice] <SHUDEvent_OnNotification> Added notification " +
+                    "\"Bauplan erhalten: Attrition-5 Repeater: \" [136] to queue. New queue size: 1",
+            )
+
+            val result = BlueprintExtractor.extract(channel)
+
+            assertEquals(1, result.export.blueprintCount)
+            assertEquals(ScLocalization.Detected.NONE, result.localization)
+            assertEquals(BlueprintParser.BUILT_IN_FORMATS, result.formatsUsed)
+        } finally {
+            channel.deleteRecursively()
+        }
+    }
+
+    @Test
     fun `a flat archive folder of loose logs is read`() {
         val archive = tempChannel()
         try {

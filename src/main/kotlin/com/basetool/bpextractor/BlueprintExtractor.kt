@@ -29,6 +29,14 @@ typealias ProgressListener = (
 data class ExtractionResult(
     val export: BlueprintExport,
     val skippedFiles: List<String>,
+    /**
+     * What the picked folder said about its own localisation, and which notification formats the
+     * run actually matched with. Kept out of the export JSON — it is a diagnosis for the user, not
+     * part of the contract. [ScLocalization.Detected.NONE] when the folder holds no game install
+     * (an archive folder), in which case only the built-in formats were used.
+     */
+    val localization: ScLocalization.Detected = ScLocalization.Detected.NONE,
+    val formatsUsed: List<String> = BlueprintParser.BUILT_IN_FORMATS,
 )
 
 /**
@@ -169,6 +177,13 @@ object BlueprintExtractor {
         val files = findLogFiles(channelFolder)
         val bytesTotal = files.sumOf { it.length() }
 
+        // Ask the installation what it calls a received blueprint, then fall back to what we ship.
+        // The install's own wording wins nothing over ours — both are matched — but it is what
+        // makes a rewording, or a language we never shipped, work without a release.
+        val localization = ScLocalization.detect(channelFolder)
+        val formats = (localization.formats + BlueprintParser.BUILT_IN_FORMATS).distinct()
+        val patterns = BlueprintParser.compile(formats)
+
         val allBlueprints = mutableListOf<BlueprintEvent>()
         val countsByPlayer = linkedMapOf<String, Int>()
         val seenEvents = HashSet<EventKey>()
@@ -179,7 +194,7 @@ object BlueprintExtractor {
             progress?.invoke(index, files.size, bytesBefore, bytesTotal, file.name)
             var lastReported = 0L
             val result = try {
-                BlueprintParser.parseFile(file) { bytesRead ->
+                BlueprintParser.parseFile(file, patterns) { bytesRead ->
                     if (bytesRead - lastReported >= PROGRESS_BYTE_STEP) {
                         lastReported = bytesRead
                         progress?.invoke(index, files.size, bytesBefore + bytesRead, bytesTotal, file.name)
@@ -218,7 +233,7 @@ object BlueprintExtractor {
             players = players,
             blueprints = sorted,
         )
-        return ExtractionResult(export, skipped)
+        return ExtractionResult(export, skipped, localization, formats)
     }
 
     /** Serialize an export to pretty JSON text. */

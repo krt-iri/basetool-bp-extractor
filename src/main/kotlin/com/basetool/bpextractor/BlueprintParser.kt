@@ -35,56 +35,91 @@ object BlueprintParser {
     private val TIMESTAMP = Regex("""^<([^>]+)>""")
 
     /**
-     * The localised labels the game puts in front of the item name. Star Citizen renders this
-     * label from its localisation tables (`g_language` in `user.cfg`), while the line around it
-     * — `Added notification "<label>: <name>: " [<id>] to queue. New queue size: …` — is a C++
-     * format literal and stays English in every language. Matching only the English label is
-     * therefore a *silent total* failure on a localised client: no error, no skipped file, just
-     * an export with zero blueprints.
+     * The localised **format strings** the game renders the notification from. Star Citizen takes
+     * them from its localisation tables under the invariant key
+     * [ScLocalization.BLUEPRINT_KEY]; `%s` is the item name. The line *around* the rendered text
+     * — `Added notification "<rendered>: " [<id>] to queue. New queue size: …` — is a C++ format
+     * literal and stays English in every language. Note what that implies: because `%s` is the
+     * *last* thing the localised value contributes, everything after the item name is engine-side
+     * and cannot vary by language.
      *
-     * Deliberately a **closed whitelist**: a label goes in here only once it has been seen in a
-     * real log of that client language. A guessed translation is at best dead weight and at
-     * worst matches the wrong notification kind — and the whitelist is what keeps the
-     * anti-overcounting guarantee below narrow.
-     */
-    private val BLUEPRINT_LABELS = listOf("Received Blueprint", "Bauplan erhalten")
-
-    /**
-     * The one authoritative "you received a blueprint" line. Anchored on
-     * `Added notification` so the noisy follow-up lines (the bare queue echo and
-     * the later `UpdateNotificationItem` Next/StartFade/Remove lines) are ignored
-     * — they all repeat the same text and would otherwise inflate the count ~6x.
-     * (Measured on the private corpus: 1063 blueprint mentions for 179 real events.)
+     * Matching only the English format is a *silent total* failure on a localised client: no
+     * error, no skipped file, just an export with zero blueprints.
      *
-     * Group 1 = item name (non-greedy, up to the `: " [<digits>]` terminator),
-     * Group 2 = notification id.
+     * These are the fallback. The authoritative source is the player's own installation, which
+     * [ScLocalization.detect] reads — so a rewording is picked up without a release here. This
+     * list only has to carry us when there is no readable `global.ini`: a vanilla English install
+     * (its copy lives inside `Data.p4k`), or an archive folder with no game next to it.
+     *
+     * Deliberately a **closed whitelist**: an entry goes in only on authoritative evidence —
+     * the localisation source (`rjcncpt/StarCitizen-Deutsch-INI`, which is what the SC Deutsch
+     * Launcher installs) or a real log of that client language. A guessed translation is at best
+     * dead weight and at worst matches the wrong notification kind. Verified there: exactly one
+     * key produces each of these values, in both languages, so none of them can collide with
+     * another notification kind.
      */
-    private val BLUEPRINT = Regex(
-        """Added notification "(?i:""" +
-            BLUEPRINT_LABELS.joinToString("|") { Regex.escape(it) } +
-            """): (.+?): " \[(\d+)]""",
+    val BUILT_IN_FORMATS: List<String> = listOf(
+        "Received Blueprint: %s",
+        "Bauplan erhalten: %s",
+        // Swiss German, shipped as the `live-CH` variant of the same translation.
+        "Bauplan überchoo: %s",
     )
 
+    /** The item-name placeholder inside a localisation value. */
+    private const val NAME_PLACEHOLDER = "%s"
+
     /**
-     * Cheap literal prefilter for [BLUEPRINT]: a plain substring check skips the regex for
-     * ~99.5% of lines (logs run to hundreds of MB). Must stay a literal prefix of the regex —
-     * which is why it stops before the label, now that the label is a set rather than one
-     * string. Measured over the 424-file corpus: 41 560 of 7 863 351 lines reach the regex,
-     * against 179 before; the scan is I/O-bound, so the cost does not show up.
+     * Compile one matcher per format. Anchored on `Added notification` so the noisy follow-up
+     * lines (the bare queue echo and the later `UpdateNotificationItem` Next/StartFade/Remove
+     * lines) are ignored — they all repeat the same text and would otherwise inflate the count
+     * ~6x. (Measured on the private corpus: 1063 blueprint mentions for 179 real events.)
      *
-     * **Case:** this check is exact, and correspondingly the leading `Added notification "` in
-     * [BLUEPRINT] is the one part *not* wrapped in `(?i:…)`. That is not an oversight — it is the
+     * Splitting the format at `%s` rather than treating it as a prefix is what makes a *reordered*
+     * translation work: every value seen so far is `<label>: %s`, but `%s ist eingetroffen` would
+     * be just as legal and a prefix-only rule could not express it.
+     *
+     * In every pattern: group 1 = item name (non-greedy, up to the terminator), group 2 =
+     * notification id. One regex per format rather than one alternation keeps that numbering
+     * true no matter what the formats look like; the cost is bounded by the prefilter (~41k of
+     * ~7.9M lines reach this stage at all).
+     *
+     * A format without `%s` is dropped: it cannot describe where the name sits, and guessing
+     * would be worse than not matching.
+     */
+    fun compile(formats: List<String>): List<Regex> =
+        formats.filter { NAME_PLACEHOLDER in it }.map { format ->
+            val prefix = format.substringBefore(NAME_PLACEHOLDER)
+            val suffix = format.substringAfter(NAME_PLACEHOLDER)
+            Regex(
+                """Added notification "(?i:""" + Regex.escape(prefix) + """)(.+?)(?i:""" +
+                    Regex.escape(suffix) + """): " \[(\d+)]""",
+            )
+        }
+
+    /** Compiled [BUILT_IN_FORMATS] — the default when a caller has nothing better. */
+    val BUILT_IN_PATTERNS: List<Regex> = compile(BUILT_IN_FORMATS)
+
+    /**
+     * Cheap literal prefilter for the patterns from [compile]: a plain substring check skips them
+     * for ~99.5% of lines (logs run to hundreds of MB). Must stay a literal prefix of every
+     * pattern — which is why it stops before the localised text, that text being a set and, now
+     * that the formats can come from the player's installation, not even a fixed one. Measured
+     * over the 424-file corpus: 41 560 of 7 863 351 lines reach the regex stage, against 179
+     * before; the scan is I/O-bound, so the cost does not show up.
+     *
+     * **Case:** this check is exact, and correspondingly the leading `Added notification "` is the
+     * one part of each pattern *not* wrapped in `(?i:…)`. That is not an oversight — it is the
      * invariant that keeps the two consistent. `Added notification "` is a compile-time format
-     * literal in the game binary and cannot vary; the label after it comes from the translation
-     * tables and can, which is exactly the part matched case-insensitively. Making the prefilter
-     * itself case-insensitive would give up the intrinsified `String.indexOf` on every one of
-     * ~7.9M lines to guard a string that cannot change.
+     * literal in the game binary and cannot vary; the localised text after it comes from the
+     * translation tables and can, which is exactly the part matched case-insensitively. Making
+     * the prefilter itself case-insensitive would give up the intrinsified `String.indexOf` on
+     * every one of ~7.9M lines to guard a string that cannot change.
      */
     private const val BLUEPRINT_MARKER = "Added notification \""
 
     /**
-     * Optional sibling fields on the same blueprint line. Only ever run on a line [BLUEPRINT]
-     * already matched, so case-insensitivity here is free.
+     * Optional sibling fields on the same blueprint line. Only ever run on a line one of the
+     * [compile] patterns already matched, so case-insensitivity here is free.
      */
     private val QUEUE_SIZE = Regex("""New queue size: (\d+)""", RegexOption.IGNORE_CASE)
 
@@ -144,11 +179,20 @@ object BlueprintParser {
      * Parse a single Game.log file. Streams line by line so multi-hundred-MB
      * logs never get loaded whole. Unreadable bytes are replaced, never fatal.
      *
+     * [blueprintPatterns] are the compiled notification matchers, from [compile] — the caller
+     * passes the formats it resolved from the player's installation, defaulting to
+     * [BUILT_IN_PATTERNS]. Compiling once per run rather than per file is why this is a
+     * parameter and not a lookup.
+     *
      * [onBytesRead] (optional) is called with the cumulative raw bytes consumed so far —
      * the within-file progress source for the GUI bar. Granularity follows the reader's
      * internal buffering (a few KB per step), which is plenty for a progress bar.
      */
-    fun parseFile(file: File, onBytesRead: ((bytesRead: Long) -> Unit)? = null): FileResult {
+    fun parseFile(
+        file: File,
+        blueprintPatterns: List<Regex> = BUILT_IN_PATTERNS,
+        onBytesRead: ((bytesRead: Long) -> Unit)? = null,
+    ): FileResult {
         var gameBuild = BUILD_FROM_NAME.find(file.name)?.groupValues?.get(1)
         // Only the live Game.log lacks a build in its name; then, and only then, we look at the
         // header. Bounded to the very first line so this never touches the hot path.
@@ -173,9 +217,9 @@ object BlueprintParser {
                     player = extractPlayer(line)
                 }
 
-                // Cheap literal prefilter — skips the regex for the vast majority of lines.
+                // Cheap literal prefilter — skips the regexes for the vast majority of lines.
                 if (BLUEPRINT_MARKER !in line) continue
-                val bp = BLUEPRINT.find(line) ?: continue
+                val bp = blueprintPatterns.firstNotNullOfOrNull { it.find(line) } ?: continue
                 val name = bp.groupValues[1].trim()
                 if (name.isEmpty()) continue
 
