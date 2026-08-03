@@ -26,6 +26,8 @@ import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.unit.dp
+import com.basetool.bpextractor.net.IngestProblem
+import com.basetool.bpextractor.net.auth.DpopNonce
 import com.basetool.bpextractor.ui.i18n.LocalStrings
 import kotlinx.coroutines.CoroutineScope
 
@@ -155,7 +157,20 @@ fun SendOverlay(
                         )
                     is SendState.Error ->
                         Text(
-                            strings.send.error(state.message),
+                            // Three failures are worth naming instead of echoing a server sentence
+                            // that reads like something a retry could fix: the gateway refusing this
+                            // client software outright (REQ-INGEST-011), a server demanding a nonce
+                            // handshake this build does not speak, and a system clock far enough off
+                            // that no proof of ours can land inside the server's window.
+                            when {
+                                state.code == IngestProblem.CLIENT_NOT_ALLOWED ->
+                                    strings.send.errorClientNotAllowed(state.message)
+                                state.code == DpopNonce.CODE ->
+                                    strings.send.errorDpopNonceRequired(state.message)
+                                state.clockOffsetSeconds != 0L ->
+                                    strings.send.errorClockSkew(state.clockOffsetSeconds, state.message)
+                                else -> strings.send.error(state.message)
+                            },
                             style = MaterialTheme.typography.bodyMedium,
                             color = Krt.Gray1,
                         )

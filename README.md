@@ -33,6 +33,19 @@ Die App bringt eine **Installationsroutine** (MSI) mit und lässt sich wie jedes
 normale Windows-Programm wieder **deinstallieren** (Einträge in „Apps & Features",
 Startmenü, Desktop-Verknüpfung).
 
+> **Die Ingest-Schnittstelle des Basetools darf ausschließlich von Client-Software
+> genutzt werden, die von [@greluc](https://github.com/greluc) freigegeben ist.**
+> Das Gateway prüft die Client-Kennung, den Scope und das `tool`-Feld der Nutzdaten
+> gegen serverseitige Freigabelisten und weist alles andere mit
+> `403 CLIENT_NOT_ALLOWED` ab (`REQ-INGEST-011` in `docs/specs/desktop-ingest.md`
+> des Basetool-Repos). Wer *das Basetool nutzen* darf, ändert das nicht — jedes
+> Mitglied kann Blueprints und Raffinerie-Aufträge hochladen, aber eben mit dem
+> freigegebenen Extractor. Nutze deshalb eine offizielle Version von der
+> [Releases-Seite](https://github.com/krt-profit/basetool-sc-extractor/releases);
+> ein selbst gebauter Fork mit geänderter Kennung wird abgewiesen. Konkret sind
+> `DeviceGrantClient.CLIENT_ID` und `RefineryPipeline.TOOL` vertragliche
+> Konstanten — eine Änderung ist eine abgestimmte Umstellung auf beiden Seiten.
+
 ---
 
 ## Für Endnutzer
@@ -184,9 +197,13 @@ Programmordner bleibt also weiterhin restlos entfernbar:
   Einwilligung zum Senden und die Ziel-URL). Roaming-Daten, kein Programm-Rest.
 - ein **Auffrischungs-Token** (Refresh Token) im **Windows-Anmeldeinformations-Manager**
   (DPAPI-geschützt, pro Benutzer) — damit du beim nächsten Senden nicht erneut bestätigen
-  musst. Dieses Token wird bei der **Deinstallation nicht** entfernt; lösche es über
-  **Start → „Vom Basetool trennen"** (das zieht es serverseitig zurück und löscht es lokal)
-  oder im Windows-Anmeldeinformations-Manager unter dem Eintrag „Basetool SC Extractor".
+  musst. Im selben Eintrag liegt ein **privater Schlüssel** (EC P-256), an den das Token
+  gebunden ist (DPoP, RFC 9449): Eine Kopie des Tokens allein ist damit **wertlos**, weil
+  jede Anfrage zusätzlich mit diesem Schlüssel signiert werden muss — genau deshalb stehen
+  beide zusammen in einem Datensatz. Dieser Eintrag wird bei der **Deinstallation nicht**
+  entfernt; lösche ihn über **Start → „Vom Basetool trennen"** (das zieht das Token
+  serverseitig zurück und löscht beides lokal) oder im
+  Windows-Anmeldeinformations-Manager unter dem Eintrag „Basetool SC Extractor".
 
 ---
 
