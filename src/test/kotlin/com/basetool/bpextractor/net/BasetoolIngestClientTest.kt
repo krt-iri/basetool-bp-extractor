@@ -13,6 +13,7 @@ import kotlin.test.assertEquals
 import kotlin.test.assertFailsWith
 import kotlin.test.assertNotNull
 import kotlin.test.assertNull
+import kotlin.test.assertTrue
 
 /**
  * Exercises the ingest client against a local stand-in for the gateway (JDK [HttpServer]): the
@@ -143,22 +144,67 @@ class BasetoolIngestClientTest {
     }
 
     @Test
-    fun `a nonce challenge is retried exactly once with the nonce echoed back`() {
+    fun `a nonce challenge fails loudly and by name instead of being answered`() {
+        // Spring Security 7.1 has no resource-server nonce support at all, so this cannot happen
+        // today. If it ever does, it is named and needs a release — not answered by untested code.
         server.createContext("/v1/refinery-extract") { ex ->
-            if (proofs.size == 0) {
-                ex.responseHeaders.add(DpopNonce.HEADER, "N-7")
-                respond(ex, 401, """{"title":"Unauthorized","status":401}""")
-            } else {
-                respond(ex, 200, """{"handoffId":"H2","kind":"REFINERY","frontendUrl":"https://app/y"}""")
-            }
+            ex.responseHeaders.add(DpopNonce.HEADER, "N-7")
+            respond(ex, 401, "") // Spring's DPoP entry point answers with an EMPTY body
         }
 
-        val response = BasetoolIngestClient(baseUrl).sendRefinery("tok", "{}", "de", DpopKey.generate())
+        val failure =
+            assertFailsWith<IngestException> {
+                BasetoolIngestClient(baseUrl).sendRefinery("tok", "{}", "de", DpopKey.generate())
+            }
 
-        assertEquals("H2", response.handoffId)
-        assertEquals(2, proofs.size, "exactly one retry")
-        assertNull(DpopProofs.claim(proofs[0]!!, "nonce"))
-        assertEquals("N-7", DpopProofs.claim(proofs[1]!!, "nonce"))
+        assertEquals(DpopNonce.CODE, failure.code, "the UI keys its wording off this")
+        assertEquals(1, proofs.size, "the challenge must not be answered")
+        assertNull(DpopProofs.claims(proofs.single()!!)["nonce"], "no proof ever carries a nonce")
+    }
+
+    @Test
+    fun `an empty body on a 401 does not break the problem parsing`() {
+        // Spring's DPoP entry point returns no body at all — a legitimate shape the client must
+        // survive rather than fail to decode.
+        server.createContext("/v1/blueprint-preview") { ex -> respond(ex, 401, "") }
+
+        val failure =
+            assertFailsWith<IngestException> {
+                BasetoolIngestClient(baseUrl).sendBlueprint("tok", "{}", "de", DpopKey.generate())
+            }
+
+        assertEquals("", failure.code)
+        assertEquals("the basetool rejected the upload (HTTP 401)", failure.message)
+    }
+
+    @Test
+    fun `an iat written from a drifting clock is corrected from the server's Date and retried once`() {
+        val skew = 600L
+        RawHttpServer { attempt, _ ->
+            if (attempt == 1) {
+                RawHttpServer.response("401 Unauthorized", "", skew)
+            } else {
+                RawHttpServer.response(
+                    "200 OK",
+                    """{"handoffId":"H2","kind":"REFINERY","frontendUrl":"https://app/y"}""",
+                    skew,
+                )
+            }
+        }
+            .use { raw ->
+                val response =
+                    BasetoolIngestClient(raw.baseUrl).sendRefinery("tok", "{}", "de", DpopKey.generate())
+
+                assertEquals("H2", response.handoffId)
+                assertEquals(2, raw.received.size, "exactly one retry")
+                val sent = raw.received.map { assertNotNull(it.header("DPoP")) }
+                val shift =
+                    DpopProofs.claim(sent[1], "iat")!!.toLong() - DpopProofs.claim(sent[0], "iat")!!.toLong()
+                assertTrue(
+                    shift in (skew - 5)..(skew + 5),
+                    "the retry's iat must be pulled onto the server's clock, was ${shift}s",
+                )
+            }
     }
 
     @Test

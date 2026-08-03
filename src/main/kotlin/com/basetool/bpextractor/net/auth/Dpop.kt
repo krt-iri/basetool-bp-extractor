@@ -16,7 +16,10 @@ import java.security.spec.ECGenParameterSpec
 import java.security.spec.ECPoint
 import java.security.spec.PKCS8EncodedKeySpec
 import java.security.spec.X509EncodedKeySpec
+import java.time.Duration
 import java.time.Instant
+import java.time.ZonedDateTime
+import java.time.format.DateTimeFormatter
 import java.util.Base64
 import java.util.UUID
 
@@ -58,8 +61,8 @@ class DpopKey private constructor(private val keyPair: KeyPair) {
      * @param htu the absolute request URI **without query and fragment** — build it with [htu]
      * @param accessToken the token the proof accompanies; adds the `ath` hash (required at a
      *   resource server, absent at the token endpoint where no token is presented yet)
-     * @param nonce the server-supplied `DPoP-Nonce` to echo, or `null` when none was demanded
-     * @param issuedAt the `iat` instant (injected so tests can pin it)
+     * @param issuedAt the `iat` instant — pass [ServerClock.now] so a drifting local clock does not
+     *   put it outside the server's window
      * @param jti the proof's unique id — **fresh per proof**, defaulted to a random UUID; a reused
      *   one is exactly what a replay looks like to a server that caches them
      * @return the serialized `header.payload.signature` proof
@@ -68,7 +71,6 @@ class DpopKey private constructor(private val keyPair: KeyPair) {
         htm: String,
         htu: String,
         accessToken: String? = null,
-        nonce: String? = null,
         issuedAt: Instant = Instant.now(),
         jti: String = UUID.randomUUID().toString(),
     ): String {
@@ -86,7 +88,6 @@ class DpopKey private constructor(private val keyPair: KeyPair) {
                 put("iat", issuedAt.epochSecond)
                 // RFC 9449 §4.2: base64url of the SHA-256 over the ASCII access-token value.
                 if (accessToken != null) put("ath", base64Url(sha256(accessToken.toByteArray(Charsets.US_ASCII))))
-                if (nonce != null) put("nonce", nonce)
             }
         val signingInput = "${base64Url(canonicalJson(header))}.${base64Url(canonicalJson(claims))}"
         val signature =
@@ -209,33 +210,115 @@ class DpopKey private constructor(private val keyPair: KeyPair) {
 }
 
 /**
- * One endpoint's DPoP nonce (RFC 9449 §8/§9). A server may refuse a proof and hand out a
- * `DPoP-Nonce` it wants echoed back; the nonces of the **authorization server** and of the
- * **resource server** are unrelated, so each client keeps its own instance and they must never be
- * shared. Mutated from whichever thread runs the send, hence `@Volatile`.
+ * The clock one server's proofs are stamped from, corrected towards **that server's** time.
+ *
+ * <p>**Why this has to exist.** A proof's `iat` is written by the client but judged by the server,
+ * inside a narrow window: Keycloak accepts −25s…+15s, the ingest gateway ±60s. A desktop clock that
+ * runs ~15 seconds fast — invisible in the taskbar, and entirely harmless to the plain-bearer builds
+ * that send no timestamp at all — therefore breaks *every* proof, and with it the whole login, since
+ * Keycloak validates the proof before it even looks at the grant. Rather than leave that to the user
+ * to diagnose, the offset is measured from the HTTP `Date` every response carries (RFC 9110 §6.6.1)
+ * and added to `iat`.
+ *
+ * <p>This can only ever aim *at* the server's window, never widen it — the server judges by its own
+ * clock regardless — so a wrong or even forged `Date` costs nothing but a rejected proof. Each server
+ * gets its own instance for the same reason each gets its own [DpopNonce]: their clocks are unrelated.
  */
-class DpopNonce {
+class ServerClock {
 
-    @Volatile private var value: String? = null
-
-    /** The nonce to put in the next proof, or `null` when the server has not demanded one. */
-    fun current(): String? = value
+    @Volatile private var offset: Long = 0
 
     /**
-     * Records a `DPoP-Nonce` a response carried. Blank/absent values are ignored so a response
-     * without the header never clears a nonce the server still expects.
-     *
-     * @param nonce the response header value, or `null` when the response carried none
+     * How far the server's clock is ahead of this machine's, in seconds (negative ⇒ this machine
+     * runs fast). Zero until a `Date` has been seen — and, on a healthy machine, ever after.
      */
-    fun remember(nonce: String?) {
-        if (!nonce.isNullOrBlank()) value = nonce
+    fun offsetSeconds(): Long = offset
+
+    /** The instant to stamp into a proof's `iat`: local time, corrected towards the server. */
+    fun now(): Instant = Instant.now().plusSeconds(offset)
+
+    /**
+     * Learns the offset from one response. Ignores an absent or unparseable header, so a server that
+     * omits `Date` simply leaves the local clock in charge.
+     *
+     * @param dateHeader the response's `Date` value
+     * @param sentAt local time immediately before the request went out; with local time *now* it
+     *   brackets the moment the server stamped the header, and the midpoint removes half the
+     *   round-trip bias (immaterial against a 15-second window, but free)
+     */
+    fun observe(dateHeader: String?, sentAt: Instant) {
+        val server = parseHttpDate(dateHeader) ?: return
+        val midpoint = sentAt.plusMillis(Duration.between(sentAt, Instant.now()).toMillis() / 2)
+        offset = Duration.between(midpoint, server).seconds
     }
 
     companion object {
-        /** The response (and request-challenge) header carrying the nonce. */
-        const val HEADER = "DPoP-Nonce"
+        /**
+         * The offset change that justifies re-sending a rejected request with a corrected `iat`.
+         * Below it the first proof was already inside every server's window, so the rejection had
+         * another cause and a retry would only repeat it.
+         */
+        const val MATERIAL_SECONDS = 5L
 
-        /** The OAuth2 / RFC 9449 error code that asks the client to retry with a nonce. */
-        const val USE_DPOP_NONCE = "use_dpop_nonce"
+        /**
+         * The offset at which the clock is worth *telling the user about* — comfortably inside
+         * Keycloak's ±15s tolerance, so it is only ever reported when it really is the likely cause.
+         */
+        const val REPORTABLE_SECONDS = 10L
+
+        private fun parseHttpDate(value: String?): Instant? =
+            try {
+                if (value.isNullOrBlank()) {
+                    null
+                } else {
+                    ZonedDateTime.parse(value, DateTimeFormatter.RFC_1123_DATE_TIME).toInstant()
+                }
+            } catch (_: Exception) {
+                null
+            }
+    }
+}
+
+/**
+ * RFC 9449 §8's **nonce challenge — deliberately not implemented.**
+ *
+ * <p>A server may refuse a proof and hand out a `DPoP-Nonce` it wants echoed back in a new one.
+ * Neither server in this system does: Spring Security 7.1, which the ingest gateway runs, has no
+ * resource-server nonce support at all, and the string `use_dpop_nonce` appears nowhere in Keycloak.
+ * Carrying an untested handshake for a case that cannot currently arise buys no security and no
+ * confidence — it only guarantees that the first real challenge would be answered by code nobody has
+ * ever seen run.
+ *
+ * <p>So the challenge is **detected and reported by name** instead. If one ever arrives, the send
+ * fails immediately with [CODE], the UI says plainly that the server wants a handshake this build
+ * does not speak, and fixing it is a release — a loud, once-only event rather than a silent
+ * dependency on untested code. Detection is the whole of the implementation.
+ */
+object DpopNonce {
+
+    /** The response header carrying a nonce; its mere presence on a 4xx is the challenge. */
+    const val HEADER = "DPoP-Nonce"
+
+    /** The RFC 9449 §8 error code an authorization server names in the challenge. */
+    const val USE_DPOP_NONCE = "use_dpop_nonce"
+
+    /** The reason code the UI keys its explanation off (client-synthesized, not a server code). */
+    const val CODE = "DPOP_NONCE_REQUIRED"
+
+    /**
+     * Reports a challenge on the one channel this app has. There is no logging framework here and
+     * none may be added lightly — the tool must stay stateless on disk, so a log file next to the
+     * exe is out — and the packaged app has no console, so this reaches a developer running from a
+     * terminal and nobody else. **The user-facing half is the UI message keyed on [CODE]**; this is
+     * only so the cause is not invisible while diagnosing. The nonce itself is server-issued and not
+     * a secret, but it is not echoed here either — the endpoint is all anyone needs.
+     *
+     * @param endpoint the URL that issued the challenge
+     */
+    fun reportChallenge(endpoint: String) {
+        System.err.println(
+            "DPoP: $endpoint demanded a nonce (RFC 9449 §8). This build does not implement the " +
+                "nonce handshake; the request was NOT retried. This needs a new release.",
+        )
     }
 }

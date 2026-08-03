@@ -1,5 +1,6 @@
 package com.basetool.bpextractor.net.auth
 
+import com.basetool.bpextractor.net.RawHttpServer
 import com.sun.net.httpserver.HttpExchange
 import com.sun.net.httpserver.HttpServer
 import java.net.InetSocketAddress
@@ -171,44 +172,144 @@ class DeviceGrantClientTest {
     }
 
     @Test
-    fun `a nonce challenge is retried exactly once, with the nonce echoed back`() {
-        // RFC 9449 §8. Without this the whole flow breaks the moment Keycloak turns nonces on.
-        tokenEndpointRecording { ex, attempt ->
-            if (attempt == 1) {
-                ex.responseHeaders.add(DpopNonce.HEADER, "N-1")
-                respond(ex, 400, """{"error":"use_dpop_nonce","error_description":"nonce required"}""")
-            } else {
-                respond(ex, 200, """{"access_token":"AT2","refresh_token":"RT2","token_type":"DPoP","expires_in":300}""")
-            }
+    fun `a nonce challenge fails loudly and by name instead of being answered`() {
+        // RFC 9449 §8 is deliberately NOT implemented: neither Keycloak nor the gateway ever issues
+        // a challenge, and carrying an untested handshake for it would only guarantee that the first
+        // real one is answered by code nobody has watched run. It is named so it needs a release.
+        tokenEndpointRecording { ex, _ ->
+            ex.responseHeaders.add(DpopNonce.HEADER, "N-1")
+            respond(ex, 400, """{"error":"use_dpop_nonce","error_description":"nonce required"}""")
         }
 
-        val token = client().refreshAccessToken("OLD-RT", DpopKey.generate())
+        val failure =
+            assertFailsWith<DeviceGrantException> {
+                client().refreshAccessToken("OLD-RT", DpopKey.generate())
+            }
 
-        assertEquals("AT2", token.accessToken)
-        assertEquals(2, proofs.size, "exactly one retry")
-        assertNull(DpopProofs.claim(proofs[0]!!, "nonce"), "the first attempt cannot know the nonce")
-        assertEquals("N-1", DpopProofs.claim(proofs[1]!!, "nonce"), "the retry must echo it")
-        assertNotEquals(
-            DpopProofs.claim(proofs[0]!!, "jti"),
-            DpopProofs.claim(proofs[1]!!, "jti"),
-            "the retry is a new proof, not a re-sent one",
-        )
+        assertEquals(DpopNonce.USE_DPOP_NONCE, failure.oauthError, "the UI keys its wording off this")
+        assertEquals(1, proofs.size, "the challenge must not be answered")
+        assertNull(DpopProofs.claims(proofs.single()!!)["nonce"], "no proof ever carries a nonce")
     }
 
     @Test
     fun `an ordinary rejection is never retried, even when a nonce rides along`() {
         // A dead refresh token must fail fast into a fresh login; re-posting a grant in a loop is
-        // exactly what the single-retry rule exists to prevent.
+        // exactly what the at-most-one-retry rule exists to prevent.
         tokenEndpointRecording { ex, _ ->
             ex.responseHeaders.add(DpopNonce.HEADER, "N-1")
             respond(ex, 400, """{"error":"invalid_grant"}""")
         }
 
-        assertFailsWith<DeviceGrantException> {
-            client().refreshAccessToken("DEAD-RT", DpopKey.generate())
-        }
+        val failure =
+            assertFailsWith<DeviceGrantException> {
+                client().refreshAccessToken("DEAD-RT", DpopKey.generate())
+            }
 
-        assertEquals(1, proofs.size, "only a use_dpop_nonce answer earns a second request")
+        assertEquals("invalid_grant", failure.oauthError)
+        assertEquals(1, proofs.size, "nothing about this answer earns a second request")
+    }
+
+    // --- clock correction ------------------------------------------------------------------------
+
+    @Test
+    fun `an iat written from a drifting clock is corrected from the server's Date and retried once`() {
+        // Keycloak accepts iat only in -25s..+15s and checks the proof BEFORE the grant, so a clock
+        // a few tens of seconds off breaks authentication outright — where the plain-bearer builds,
+        // which send no timestamp at all, were immune. The server's own Date header is the fix.
+        val skew = 600L
+        RawHttpServer { attempt, _ ->
+            if (attempt == 1) {
+                RawHttpServer.response(
+                    "400 Bad Request",
+                    """{"error":"invalid_request","error_description":"DPoP proof is not active"}""",
+                    skew,
+                )
+            } else {
+                RawHttpServer.response(
+                    "200 OK",
+                    """{"access_token":"AT2","refresh_token":"RT2","token_type":"DPoP","expires_in":300}""",
+                    skew,
+                )
+            }
+        }
+            .use { raw ->
+                val token =
+                    DeviceGrantClient(issuer = raw.baseUrl).refreshAccessToken("OLD-RT", DpopKey.generate())
+
+                assertEquals("AT2", token.accessToken, "the corrected retry must succeed")
+                assertEquals(2, raw.received.size, "exactly one retry")
+                val sent = raw.received.map { assertNotNull(it.header("DPoP")) }
+                val shift =
+                    DpopProofs.claim(sent[1], "iat")!!.toLong() - DpopProofs.claim(sent[0], "iat")!!.toLong()
+                // The first proof used the raw local clock; the second is pulled onto the server's.
+                assertTrue(
+                    shift in (skew - 5)..(skew + 5),
+                    "the retry's iat must be shifted onto the server's clock, was ${shift}s",
+                )
+                assertNotEquals(
+                    DpopProofs.claim(sent[0], "jti"),
+                    DpopProofs.claim(sent[1], "jti"),
+                    "the retry is a new proof — a reused jti is what a replay looks like",
+                )
+            }
+    }
+
+    @Test
+    fun `a rejection with the clock already in step is not retried`() {
+        // Nothing was learned, so a second identical proof would only repeat the first rejection.
+        RawHttpServer { _, _ ->
+            RawHttpServer.response(
+                "400 Bad Request",
+                """{"error":"invalid_request","error_description":"bad proof"}""",
+            )
+        }
+            .use { raw ->
+                assertFailsWith<DeviceGrantException> {
+                    DeviceGrantClient(issuer = raw.baseUrl).refreshAccessToken("OLD-RT", DpopKey.generate())
+                }
+
+                assertEquals(1, raw.received.size, "no correction was available, so no retry")
+            }
+    }
+
+    @Test
+    fun `a materially wrong clock is reported so the user can be told what to fix`() {
+        val skew = 900L
+        RawHttpServer { _, _ ->
+            RawHttpServer.response(
+                "400 Bad Request",
+                """{"error":"invalid_request","error_description":"DPoP proof is not active"}""",
+                skew,
+            )
+        }
+            .use { raw ->
+                val failure =
+                    assertFailsWith<DeviceGrantException> {
+                        DeviceGrantClient(issuer = raw.baseUrl).refreshAccessToken("OLD-RT", DpopKey.generate())
+                    }
+
+                // Reported only after the corrected retry ALSO failed — never blame a clock that the
+                // correction already dealt with.
+                assertEquals(2, raw.received.size)
+                assertTrue(
+                    failure.clockOffsetSeconds in (skew - 5)..(skew + 5),
+                    "the measured offset must reach the UI, was ${failure.clockOffsetSeconds}",
+                )
+            }
+    }
+
+    @Test
+    fun `a clock in step is never reported, so no one is told to fix a healthy machine`() {
+        RawHttpServer { _, _ -> RawHttpServer.response("400 Bad Request", """{"error":"invalid_grant"}""") }
+            .use { raw ->
+                val failure =
+                    assertFailsWith<DeviceGrantException> {
+                        DeviceGrantClient(issuer = raw.baseUrl).refreshAccessToken("DEAD-RT", DpopKey.generate())
+                    }
+
+                assertEquals(0L, failure.clockOffsetSeconds)
+                assertEquals("invalid_grant", failure.oauthError)
+            }
     }
 
     @Test

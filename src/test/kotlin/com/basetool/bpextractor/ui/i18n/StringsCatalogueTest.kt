@@ -63,6 +63,17 @@ class StringsCatalogueTest {
                     errorClientNotAllowed("boom").length > error("boom").length,
                     "$name: a permanent refusal needs more than the generic failure line",
                 )
+                // The two other named failures: a nonce handshake this build does not speak, and a
+                // clock too far off for any proof to land. Both must relay the server's words AND
+                // say what would actually fix them.
+                assertTrue(errorDpopNonceRequired("boom").contains("boom"))
+                assertTrue(errorClockSkew(-42, "boom").contains("boom"))
+                assertTrue(errorClockSkew(-42, "boom").contains("42"), "$name: state the measurement")
+                assertTrue(errorClockSkew(42, "boom").contains("42"))
+                assertTrue(
+                    errorClockSkew(-42, "x") != errorClockSkew(42, "x"),
+                    "$name: fast and slow must not read the same",
+                )
             }
             with(catalogue.account) {
                 listOf(connected, disconnected, disconnect, disconnectTitle, disconnectBody, disconnectConfirm)

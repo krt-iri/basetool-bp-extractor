@@ -124,10 +124,22 @@ Run from the **repo root** (not a subfolder), with **JDK 25** active. On Windows
   proof is **always offered** at the token endpoint but the `DPoP` scheme is used at the
   gateway **only when the answer's `token_type` says the server actually bound the
   token**, which is what keeps a released build working against a Keycloak or gateway
-  that has DPoP off; the authorization server's and the gateway's `DPoP-Nonce` values are
-  separate and each retries exactly **once**. Pure JDK crypto on purpose — `SunEC` is in
-  `java.base` on JDK 25, so no JOSE dependency and no extra jlink module. Never log a
-  key, a proof or a token.
+  that has DPoP off (presenting an *unbound* token under the DPoP scheme is a hard 401).
+  Pure JDK crypto on purpose — `SunEC` is in `java.base` on JDK 25, so no JOSE dependency
+  and no extra jlink module. Never log a key, a proof or a token.
+  - **Clock drift is a real failure mode** — Keycloak accepts `iat` only in −25s…+15s and
+    checks the proof *before* the grant, so a desktop clock ~15s fast breaks login
+    outright, where the timestamp-free bearer builds were immune. `ServerClock` measures
+    the offset from each server's `Date` header and corrects `iat`; a rejected proof is
+    retried **exactly once** from the corrected clock (that is the *only* retry, and it
+    cannot repeat). If it still fails, the measured offset reaches the UI so the user is
+    told to sync their clock — but only then, never for a drift we already fixed.
+  - **The RFC 9449 §8 nonce handshake is deliberately NOT implemented.** Neither server
+    issues a challenge (Spring Security 7.1 has no resource-server nonce support at all;
+    `use_dpop_nonce` appears nowhere in Keycloak), so an implementation would be code
+    nobody has watched run. A challenge is instead *detected*, reported on stderr and
+    named in the UI (`DpopNonce.CODE`) — a loud, once-only event that needs a release.
+    Don't "complete" it speculatively; do implement it if a challenge ever shows up.
 - **`Main.kt`** — entry point: opens the Compose GUI (`guiMain`). Keep
   the GUI a thin shell over `BlueprintExtractor`; business logic stays in the parser/
   extractor so tests cover it without a UI. `guiMain` also owns the update flow state

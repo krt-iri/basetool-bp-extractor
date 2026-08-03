@@ -15,6 +15,9 @@ import java.security.spec.ECParameterSpec
 import java.security.spec.ECPoint
 import java.security.spec.ECPublicKeySpec
 import java.time.Instant
+import java.time.ZoneOffset
+import java.time.ZonedDateTime
+import java.time.format.DateTimeFormatter
 import java.util.Base64
 import kotlin.test.Test
 import kotlin.test.assertContentEquals
@@ -169,13 +172,6 @@ class DpopTest {
     }
 
     @Test
-    fun nonceIsEchoedWhenTheServerDemandedOne() {
-        val proof = key.proof("POST", "https://ingest.example/v1/refinery-extract", nonce = "N-42")
-
-        assertEquals("N-42", claim(proof, "nonce"))
-    }
-
-    @Test
     fun boundMethodUriAndIssueTimeAreCarriedVerbatim() {
         val issued = Instant.ofEpochSecond(1_800_000_000L)
         val proof =
@@ -257,22 +253,47 @@ class DpopTest {
         assertNull(DpopKey.fromEncoded(key.encoded().substringBefore('.')))
     }
 
-    // --- the nonce holder -------------------------------------------------------------------------
+    // --- the server clock -------------------------------------------------------------------------
 
     @Test
-    fun nonceHolderKeepsTheLatestValueAndIgnoresAbsentOnes() {
-        val nonce = DpopNonce()
-        assertNull(nonce.current())
+    fun serverClockLearnsTheOffsetFromAnHttpDateAndAppliesItToIat() {
+        val clock = ServerClock()
+        assertEquals(0L, clock.offsetSeconds(), "an unmeasured clock must not shift anything")
 
-        nonce.remember("N1")
-        assertEquals("N1", nonce.current())
+        val sentAt = Instant.now()
+        val serverTime = ZonedDateTime.now(ZoneOffset.UTC).plusSeconds(3_600)
+        clock.observe(DateTimeFormatter.RFC_1123_DATE_TIME.format(serverTime), sentAt)
 
-        // A response without the header must not clear a nonce the server still expects.
-        nonce.remember(null)
-        nonce.remember("")
-        assertEquals("N1", nonce.current())
+        assertTrue(clock.offsetSeconds() in 3_595..3_605, "was ${clock.offsetSeconds()}")
+        val stamped = claim(key.proof("POST", "https://x/y", issuedAt = clock.now()), "iat")!!.toLong()
+        assertTrue(
+            stamped - Instant.now().epochSecond in 3_595..3_605,
+            "the proof's iat must carry the correction",
+        )
+    }
 
-        nonce.remember("N2")
-        assertEquals("N2", nonce.current())
+    @Test
+    fun serverClockIgnoresAnAbsentOrUnparseableDate() {
+        // A server that omits Date, or a proxy that mangles it, must leave the local clock in charge
+        // rather than throw the offset to some garbage value.
+        val clock = ServerClock()
+        clock.observe(DateTimeFormatter.RFC_1123_DATE_TIME.format(ZonedDateTime.now(ZoneOffset.UTC).plusSeconds(600)), Instant.now())
+        val learned = clock.offsetSeconds()
+
+        clock.observe(null, Instant.now())
+        clock.observe("", Instant.now())
+        clock.observe("not-a-date", Instant.now())
+        clock.observe("2026-08-03T12:00:00Z", Instant.now()) // ISO, not the RFC 1123 HTTP form
+
+        assertEquals(learned, clock.offsetSeconds(), "a bad Date must not disturb what was learned")
+    }
+
+    @Test
+    fun theNonceHandshakeIsDetectableButDeliberatelyUnimplemented() {
+        // Kept honest: the constants exist purely so a challenge can be recognised and named. If a
+        // `nonce` claim ever appears in a proof again, this change of mind should be deliberate.
+        assertEquals("DPoP-Nonce", DpopNonce.HEADER)
+        assertEquals("use_dpop_nonce", DpopNonce.USE_DPOP_NONCE)
+        assertNull(claims(key.proof("POST", "https://x/y"))["nonce"])
     }
 }

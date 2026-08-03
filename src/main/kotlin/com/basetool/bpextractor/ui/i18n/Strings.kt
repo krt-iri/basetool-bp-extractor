@@ -1,6 +1,7 @@
 package com.basetool.bpextractor.ui.i18n
 
 import androidx.compose.runtime.staticCompositionLocalOf
+import kotlin.math.abs
 
 /** The two UI languages: German is the default, English has full parity (design spec §6). */
 enum class Lang { DE, EN }
@@ -33,6 +34,18 @@ class SendStrings(
      * and the user needs to be told what would actually fix it.
      */
     val errorClientNotAllowed: (String) -> String,
+    /**
+     * A server demanded the RFC 9449 §8 nonce handshake, which this build deliberately does not
+     * implement (see `DpopNonce`). Not something the user can fix — it needs a new release — so the
+     * message says exactly that instead of inviting a pointless retry.
+     */
+    val errorDpopNonceRequired: (String) -> String,
+    /**
+     * The system clock is too far off for a DPoP proof to be accepted, and correcting for it did not
+     * help. Takes the *measured* deviation in seconds (negative = the machine runs fast), so the
+     * message can state a fact rather than guess.
+     */
+    val errorClockSkew: (Long, String) -> String,
 )
 
 /**
@@ -719,6 +732,20 @@ object StringsDe : Strings {
                     "GitHub-Releases) und bei bestehender Freigabe @greluc kontaktieren.\n\nMeldung " +
                     "des Basetools: $msg"
             },
+            errorDpopNonceRequired = { msg ->
+                "Versand fehlgeschlagen: Der Server verlangt ein zusätzliches Sicherheitsverfahren " +
+                    "(DPoP-Nonce), das diese Version noch nicht beherrscht. Ein erneuter Versuch " +
+                    "hilft nicht — das braucht eine neue Version des Extractors. Bitte @greluc " +
+                    "melden.\n\nMeldung des Servers: $msg"
+            },
+            errorClockSkew = { seconds, msg ->
+                val direction = if (seconds < 0) "vor" else "nach"
+                "Versand fehlgeschlagen: Deine Systemuhr geht rund ${abs(seconds)} Sekunden " +
+                    "$direction. Die Anmeldung wird nur in einem engen Zeitfenster von wenigen " +
+                    "Sekunden akzeptiert, deshalb schlägt sie fehl. Bitte unter Einstellungen → " +
+                    "Zeit und Sprache → Datum und Uhrzeit die Uhr synchronisieren und es erneut " +
+                    "versuchen.\n\nMeldung des Servers: $msg"
+            },
         )
     override val account =
         AccountStrings(
@@ -1086,6 +1113,18 @@ object StringsEn : Strings {
                     "not on the list. Trying again will not change that. Please use an official build " +
                     "of the Basetool SC Extractor (see the GitHub releases) and contact @greluc if you " +
                     "believe it should be approved.\n\nBasetool said: $msg"
+            },
+            errorDpopNonceRequired = { msg ->
+                "Send failed: the server requires an additional security handshake (DPoP nonce) that " +
+                    "this version does not implement yet. Trying again will not help — this needs a " +
+                    "new build of the extractor. Please tell @greluc.\n\nServer said: $msg"
+            },
+            errorClockSkew = { seconds, msg ->
+                val direction = if (seconds < 0) "fast" else "slow"
+                "Send failed: your system clock is about ${abs(seconds)} seconds $direction. Sign-in " +
+                    "is only accepted within a narrow window of a few seconds, so it fails. Please " +
+                    "synchronise the clock under Settings → Time & language → Date & time and try " +
+                    "again.\n\nServer said: $msg"
             },
         )
     override val account =

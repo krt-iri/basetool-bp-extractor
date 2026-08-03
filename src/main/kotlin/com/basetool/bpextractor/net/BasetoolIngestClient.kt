@@ -2,6 +2,7 @@ package com.basetool.bpextractor.net
 
 import com.basetool.bpextractor.net.auth.DpopKey
 import com.basetool.bpextractor.net.auth.DpopNonce
+import com.basetool.bpextractor.net.auth.ServerClock
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.Json
 import java.net.URI
@@ -9,6 +10,8 @@ import java.net.http.HttpClient
 import java.net.http.HttpRequest
 import java.net.http.HttpResponse
 import java.time.Duration
+import java.time.Instant
+import kotlin.math.abs
 
 /** The ingest gateway's success answer: where the staged draft was put + the browser landing URL. */
 @Serializable
@@ -79,8 +82,8 @@ class BasetoolIngestClient(
 
     private val json = Json { ignoreUnknownKeys = true }
 
-    /** This resource server's nonce — separate from the authorization server's (RFC 9449 §8/§9). */
-    private val nonce = DpopNonce()
+    /** This server's clock, learned from its `Date` headers — see [ServerClock]. Its own, not shared. */
+    private val clock = ServerClock()
 
     init {
         require(
@@ -134,18 +137,23 @@ class BasetoolIngestClient(
         dpopKey: DpopKey?,
     ): IngestResponse {
         val uri = URI.create(baseUrl.trimEnd('/') + path)
+        val offsetBefore = clock.offsetSeconds()
         var response =
             try {
                 post(uri, accessToken, bodyJson, acceptLanguage, dpopKey)
             } catch (e: Exception) {
                 throw IngestException("could not reach the basetool: ${e.message}")
             }
-        // RFC 9449 §8: the server may refuse the proof and hand out a nonce it wants echoed back.
-        // Retry EXACTLY once, with a fresh proof carrying it. The condition requires the server to
-        // have supplied a nonce, which no other rejection does — in particular a 403
-        // CLIENT_NOT_ALLOWED is permanent (the same binary is refused every time) and must never be
-        // re-sent, and the status check alone already excludes it.
-        if (dpopKey != null && isNonceChallenge(response)) {
+        // Exactly one retry, and only when this machine's clock turned out to be far enough off the
+        // server's that the first proof's `iat` fell outside its window — the second one is written
+        // from the corrected clock and cannot fail the same way, so this can never loop. Nothing
+        // else is retried: a 403 CLIENT_NOT_ALLOWED is permanent (the same binary is refused every
+        // time) and a nonce challenge is reported rather than answered ([DpopNonce]).
+        val clockJustCorrected =
+            dpopKey != null &&
+                (response.statusCode() == 400 || response.statusCode() == 401) &&
+                abs(clock.offsetSeconds() - offsetBefore) >= ServerClock.MATERIAL_SECONDS
+        if (clockJustCorrected) {
             response =
                 try {
                     post(uri, accessToken, bodyJson, acceptLanguage, dpopKey)
@@ -164,8 +172,19 @@ class BasetoolIngestClient(
             try {
                 json.decodeFromString<IngestProblem>(response.body())
             } catch (_: Exception) {
+                // Spring's DPoP entry point answers 401 with an EMPTY body — a legitimate shape here.
                 null
             }
+        // A nonce challenge (RFC 9449 §8) is named rather than answered: this build does not speak
+        // the handshake, so say so instead of failing under some generic message. The gateway sends
+        // no problem body on that path, hence the client-synthesized code.
+        if (dpopKey != null && isNonceChallenge(response)) {
+            DpopNonce.reportChallenge(uri.toString())
+            throw IngestException(
+                problemDetail(problem, response.statusCode()),
+                DpopNonce.CODE,
+            )
+        }
         throw IngestException(problemDetail(problem, response.statusCode()), problem?.code.orEmpty())
     }
 
@@ -194,26 +213,20 @@ class BasetoolIngestClient(
                     htm = "POST",
                     htu = DpopKey.htu(uri),
                     accessToken = accessToken,
-                    nonce = nonce.current(),
+                    issuedAt = clock.now(),
                 ),
             )
         }
+        val sentAt = Instant.now()
         val response = http.send(builder.build(), HttpResponse.BodyHandlers.ofString())
-        nonce.remember(response.headers().firstValue(DpopNonce.HEADER).orElse(null))
+        clock.observe(response.headers().firstValue("Date").orElse(null), sentAt)
         return response
     }
 
     /**
-     * Whether the answer is RFC 9449 §8's "retry with this nonce". Deliberately narrow: only the two
-     * statuses a proof rejection uses, and only when the server actually supplied a nonce — so no
-     * ordinary rejection (a {@code 400 VALIDATION_FAILED}, a {@code 403 CLIENT_NOT_ALLOWED}) can be
-     * mistaken for something worth sending the payload for a second time.
-     *
-     * <p>**This is defence, not a live path.** Spring Security 7.1 — what the gateway runs — has no
-     * nonce implementation at all on the resource-server side, so today it never challenges and this
-     * never fires. It stays because the handshake is the client's half of the RFC, costs one branch,
-     * and is exactly the kind of thing that is discovered the hard way when a future Spring version
-     * or a fronting proxy starts demanding one. Nothing about the send depends on it.
+     * Whether the answer is RFC 9449 §8's nonce challenge — the server supplying a `DPoP-Nonce` on
+     * one of the two statuses a proof rejection uses. Narrow on purpose, so no ordinary rejection (a
+     * `400 VALIDATION_FAILED`, a `403 CLIENT_NOT_ALLOWED`) is ever mistaken for one.
      */
     private fun isNonceChallenge(response: HttpResponse<String>): Boolean =
         (response.statusCode() == 400 || response.statusCode() == 401) &&

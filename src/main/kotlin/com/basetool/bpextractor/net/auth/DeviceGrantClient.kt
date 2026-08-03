@@ -10,6 +10,8 @@ import java.net.http.HttpRequest
 import java.net.http.HttpResponse
 import java.nio.charset.StandardCharsets
 import java.time.Duration
+import java.time.Instant
+import kotlin.math.abs
 
 /** The Keycloak device-authorization answer — only the fields the flow needs. */
 @Serializable
@@ -64,8 +66,17 @@ data class TokenErrorResponse(
  *   failures — Keycloak validates the proof **before** the grant and reports every proof defect as a
  *   generic {@code invalid_request} — which say nothing at all about the refresh token. Empty for
  *   transport failures and unparseable answers.
+ * @param clockOffsetSeconds the measured deviation of this machine's clock from the server's, but
+ *   only once it is large enough to be the plausible cause ([ServerClock.REPORTABLE_SECONDS]) and
+ *   only after correcting for it did not rescue the request; {@code 0} otherwise. It is a *measured*
+ *   value, taken from the server's own {@code Date} header — so the UI can state it as fact rather
+ *   than guess at a cause.
  */
-class DeviceGrantException(message: String, val oauthError: String = "") : Exception(message) {
+class DeviceGrantException(
+    message: String,
+    val oauthError: String = "",
+    val clockOffsetSeconds: Long = 0,
+) : Exception(message) {
     companion object {
         /**
          * The OAuth2 error codes that mean the presented token is unusable and worth deleting
@@ -109,11 +120,12 @@ class DeviceGrantClient(
     private val tokenEndpoint = "$issuer/protocol/openid-connect/token"
 
     /**
-     * This authorization server's DPoP nonce. Deliberately *not* shared with the ingest gateway's
-     * ([BasetoolIngestClient]) — RFC 9449 §8/§9 gives the authorization and resource server separate
-     * nonce spaces, and echoing one back at the other is simply an invalid proof.
+     * This authorization server's clock, learned from its `Date` headers. Keycloak's `iat` window is
+     * the tightest in the system (−25s…+15s), so this is what keeps a desktop with a drifting clock
+     * able to authenticate at all. It belongs to this server alone — clocks, like nonces, are not
+     * shared between the authorization server and the gateway.
      */
-    private val nonce = DpopNonce()
+    private val clock = ServerClock()
 
     init {
         require(issuer.startsWith("https://") || issuer.startsWith("http://localhost")) {
@@ -143,10 +155,13 @@ class DeviceGrantClient(
                 .build()
         val response =
             try {
-                http.send(request, HttpResponse.BodyHandlers.ofString())
+                val sentAt = Instant.now()
+                http.send(request, HttpResponse.BodyHandlers.ofString()).also { observeClock(it, sentAt) }
             } catch (e: Exception) {
                 throw DeviceGrantException("device-authorization request failed: ${e.message}")
             }
+        // This call carries no proof, so it is the free opportunity to learn the server's clock
+        // before the first one is signed — the interactive path never needs a correction retry.
         if (response.statusCode() != 200) {
             throw DeviceGrantException("device-authorization request failed: HTTP ${response.statusCode()}")
         }
@@ -198,13 +213,14 @@ class DeviceGrantClient(
                     throw DeviceGrantException("token answer was not parseable: ${e.message}")
                 }
             }
-            when (parseError(response.body())) {
+            when (val error = parseError(response.body())) {
                 "authorization_pending" -> {} // keep waiting
                 "slow_down" -> intervalSeconds += 5
                 "expired_token" ->
                     throw DeviceGrantException("the approval window expired — please try again")
                 "access_denied" -> throw DeviceGrantException("the request was denied")
-                else -> throw DeviceGrantException(describeError(response))
+                else ->
+                    throw DeviceGrantException(describeError(response), error, reportableClockOffset())
             }
         }
         throw DeviceGrantException("the approval window expired — please try again")
@@ -242,6 +258,7 @@ class DeviceGrantClient(
             throw DeviceGrantException(
                 "token refresh rejected — ${describeError(response)}",
                 parseError(response.body()),
+                reportableClockOffset(),
             )
         }
         return try {
@@ -283,21 +300,22 @@ class DeviceGrantClient(
         postForm(tokenEndpoint, form, dpopKey)
 
     /**
-     * POSTs a form-encoded body, carrying a fresh DPoP proof when [dpopKey] is given, and honours a
-     * nonce challenge **once**.
+     * POSTs a form-encoded body, carrying a fresh DPoP proof when [dpopKey] is given.
      *
-     * <p>RFC 9449 §8 lets the authorization server refuse a proof with {@code 400
-     * use_dpop_nonce} plus a {@code DPoP-Nonce} header, demanding the nonce be echoed in a new
-     * proof. Without this the whole flow would break the moment Keycloak turns nonces on. Exactly
-     * one retry: a second challenge means the server is not converging, and re-posting a device-code
-     * or refresh-token grant in a loop is precisely what must not happen. The condition is narrow on
-     * purpose — it requires the server to *both* hand out a nonce *and* name {@code use_dpop_nonce}
-     * — so an ordinary {@code authorization_pending} poll never triggers a duplicate request.
+     * <p>Exactly **one** retry, and only for the one thing a first proof can legitimately get wrong
+     * on its own: an `iat` written before this machine's clock had ever been measured against the
+     * server's. That is self-correcting on the second attempt and cannot repeat, so re-posting a
+     * device-code or refresh-token grant can never loop. A nonce challenge is *not* retried — see
+     * [DpopNonce].
      */
     private fun postForm(endpoint: String, form: String, dpopKey: DpopKey?): HttpResponse<String> {
+        val offsetBefore = clock.offsetSeconds()
         val response = postOnce(endpoint, form, dpopKey)
-        if (dpopKey == null || !isNonceChallenge(response)) return response
-        return postOnce(endpoint, form, dpopKey)
+        if (dpopKey == null) return response
+        val clockJustCorrected =
+            (response.statusCode() == 400 || response.statusCode() == 401) &&
+                abs(clock.offsetSeconds() - offsetBefore) >= ServerClock.MATERIAL_SECONDS
+        return if (clockJustCorrected) postOnce(endpoint, form, dpopKey) else response
     }
 
     private fun postOnce(endpoint: String, form: String, dpopKey: DpopKey?): HttpResponse<String> {
@@ -313,20 +331,31 @@ class DeviceGrantClient(
                 dpopKey.proof(
                     htm = "POST",
                     htu = DpopKey.htu(URI.create(endpoint)),
-                    nonce = nonce.current(),
+                    issuedAt = clock.now(),
                 ),
             )
         }
+        val sentAt = Instant.now()
         val response = http.send(builder.build(), HttpResponse.BodyHandlers.ofString())
-        nonce.remember(response.headers().firstValue(DpopNonce.HEADER).orElse(null))
+        observeClock(response, sentAt)
+        if (dpopKey != null && parseError(response.body()) == DpopNonce.USE_DPOP_NONCE) {
+            DpopNonce.reportChallenge(endpoint)
+        }
         return response
     }
 
-    /** Whether the answer is RFC 9449 §8's "retry with this nonce", and not some other rejection. */
-    private fun isNonceChallenge(response: HttpResponse<String>): Boolean =
-        (response.statusCode() == 400 || response.statusCode() == 401) &&
-            response.headers().firstValue(DpopNonce.HEADER).isPresent &&
-            parseError(response.body()) == DpopNonce.USE_DPOP_NONCE
+    private fun observeClock(response: HttpResponse<*>, sentAt: Instant) {
+        clock.observe(response.headers().firstValue("Date").orElse(null), sentAt)
+    }
+
+    /**
+     * The measured clock deviation, but only when it is big enough to be the plausible cause of a
+     * rejected proof. Reported only from the terminal failure paths — i.e. after the corrected retry
+     * in [postForm] already had its chance — so the user is never told to fix a clock that was in
+     * fact fixed automatically.
+     */
+    private fun reportableClockOffset(): Long =
+        clock.offsetSeconds().takeIf { abs(it) >= ServerClock.REPORTABLE_SECONDS } ?: 0L
 
     /**
      * A safe, *diagnosable* one-liner for a rejected token request: the OAuth2 {@code error} and

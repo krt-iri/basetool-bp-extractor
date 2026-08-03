@@ -11,6 +11,7 @@ import com.basetool.bpextractor.net.auth.CredentialStore
 import com.basetool.bpextractor.net.auth.DeviceGrantClient
 import com.basetool.bpextractor.net.auth.DeviceGrantException
 import com.basetool.bpextractor.net.auth.DpopKey
+import com.basetool.bpextractor.net.auth.DpopNonce
 import com.basetool.bpextractor.net.auth.StoredCredential
 import com.basetool.bpextractor.net.auth.TokenResponse
 import com.basetool.bpextractor.net.auth.WinCredentialStore
@@ -42,11 +43,19 @@ sealed interface SendState {
      * A safe-to-show failure message (auth / network / rejected).
      *
      * @param message the already-localized detail to put in front of the user
-     * @param code the gateway's stable RFC 7807 {@code code} when it sent one, so the overlay can
-     *   explain a specific rejection — [IngestProblem.CLIENT_NOT_ALLOWED] above all — instead of
-     *   only echoing the server's sentence. Empty for auth/network failures.
+     * @param code a machine-readable reason the overlay can explain in plain language rather than
+     *   only echoing the server's sentence: the gateway's stable RFC 7807 {@code code}
+     *   ([IngestProblem.CLIENT_NOT_ALLOWED] above all), or a client-synthesized one
+     *   ([DpopNonce.CODE]). Empty for ordinary auth/network failures.
+     * @param clockOffsetSeconds this machine's *measured* deviation from the server's clock, set
+     *   only when it is large enough to be the plausible cause and correcting for it already failed
+     *   to help — see [DeviceGrantException.clockOffsetSeconds]. Zero otherwise.
      */
-    data class Error(val message: String, val code: String = "") : SendState
+    data class Error(
+        val message: String,
+        val code: String = "",
+        val clockOffsetSeconds: Long = 0,
+    ) : SendState
 }
 
 /** Which ingest endpoint a send targets — the refinery extract or the blueprint export. */
@@ -160,7 +169,14 @@ class SendController(
                     }
                 state = SendState.Done(response.frontendUrl)
             } catch (e: DeviceGrantException) {
-                state = SendState.Error(e.message ?: "authentication failed")
+                // A nonce challenge and a clock that is genuinely off both get named for what they
+                // are; everything else stays the plain failure line.
+                state =
+                    SendState.Error(
+                        e.message ?: "authentication failed",
+                        if (e.oauthError == DpopNonce.USE_DPOP_NONCE) DpopNonce.CODE else "",
+                        e.clockOffsetSeconds,
+                    )
             } catch (e: IngestException) {
                 // Carries the gateway's stable code; a CLIENT_NOT_ALLOWED lands here exactly once —
                 // there is no retry path, and the overlay explains it rather than inviting one.
