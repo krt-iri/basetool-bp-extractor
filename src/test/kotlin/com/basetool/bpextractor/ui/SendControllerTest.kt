@@ -135,7 +135,11 @@ class SendControllerTest {
     // --- DPoP (RFC 9449, REQ-INGEST-012) -------------------------------------------------------
 
     @Test
-    fun `a bound token is presented under the DPoP scheme and its key is persisted with it`() {
+    fun `even a bound token goes to the gateway as a bearer, and its key is still persisted`() {
+        // REQ-INGEST-012 / incident 2026-08-03: the gateway RELAYS the access token to the basetool
+        // backend, so a sender-constrained one cannot survive the second hop — presenting it under
+        // the DPoP scheme made the backend refuse every send. The binding that matters is on the
+        // REFRESH token, which is why the key must still be stored alongside it.
         server.createContext("/protocol/openid-connect/token") { ex ->
             respond(ex, 200, """{"access_token":"AT","refresh_token":"RT-ROTATED","token_type":"DPoP","expires_in":300}""")
         }
@@ -143,9 +147,8 @@ class SendControllerTest {
 
         runBlocking { controller(store).request(this, SendKind.REFINERY, """{"x":1}""", "de") }
 
-        assertEquals("DPoP AT", ingestAuth, "token_type DPoP ⇒ the DPoP scheme at the gateway")
-        val proof = assertNotNull(ingestProof, "and a proof for that request")
-        assertEquals(DpopProofs.expectedAth("AT"), DpopProofs.claim(proof, "ath"))
+        assertEquals("Bearer AT", ingestAuth, "the ingest call is always a plain bearer")
+        assertNull(ingestProof, "and carries no proof — the gateway does not validate one")
 
         // The refresh token and the key that redeems it have to survive together, or the credential
         // is unusable on the next start (a bound refresh token needs its own key).

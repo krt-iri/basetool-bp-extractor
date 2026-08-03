@@ -154,17 +154,19 @@ class SendController(
                     }
                 }
                 state = SendState.Sending
-                // Present the token under the DPoP scheme only if the server really bound it;
-                // otherwise it stays a plain bearer, exactly as every build so far.
-                val boundKey = grant.key.takeIf { grant.token.isDpopBound() }
+                // The access token always goes out as a plain bearer, never under the DPoP scheme:
+                // the gateway relays it to the basetool backend, and a sender-constrained token
+                // cannot survive that second hop (REQ-INGEST-012, incident 2026-08-03). The DPoP key
+                // is still in play where it pays — proving possession at the token endpoint, so
+                // Keycloak binds the REFRESH token this app persists to disk.
                 val response =
                     withContext(Dispatchers.IO) {
                         val client = ingestClientFor(baseUrl)
                         when (pendingKind) {
                             SendKind.REFINERY ->
-                                client.sendRefinery(grant.token.accessToken, pendingJson, pendingLang, boundKey)
+                                client.sendRefinery(grant.token.accessToken, pendingJson, pendingLang)
                             SendKind.BLUEPRINT ->
-                                client.sendBlueprint(grant.token.accessToken, pendingJson, pendingLang, boundKey)
+                                client.sendBlueprint(grant.token.accessToken, pendingJson, pendingLang)
                         }
                     }
                 state = SendState.Done(response.frontendUrl)
