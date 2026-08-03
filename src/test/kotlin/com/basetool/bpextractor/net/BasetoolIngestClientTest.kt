@@ -114,22 +114,6 @@ class BasetoolIngestClientTest {
     // --- DPoP (RFC 9449, REQ-INGEST-012) -------------------------------------------------------
 
     @Test
-    fun `a bound token travels under the DPoP scheme with an ath-carrying proof`() {
-        server.createContext("/v1/refinery-extract") { ex ->
-            respond(ex, 200, """{"handoffId":"H1","kind":"REFINERY","frontendUrl":"https://app/x"}""")
-        }
-
-        BasetoolIngestClient(baseUrl).sendRefinery("tok-123", "{}", "de", DpopKey.generate())
-
-        assertEquals("DPoP tok-123", seenAuth, "a sender-constrained token is never a Bearer")
-        val proof = assertNotNull(proofs.single())
-        assertEquals("POST", DpopProofs.claim(proof, "htm"))
-        assertEquals("$baseUrl/v1/refinery-extract", DpopProofs.claim(proof, "htu"))
-        // ath is what stops a proof captured on one request being reused with a different token.
-        assertEquals(DpopProofs.expectedAth("tok-123"), DpopProofs.claim(proof, "ath"))
-    }
-
-    @Test
     fun `without a key the request stays exactly the bearer every shipped build sends`() {
         // The whole migration rests on this: a gateway in dual mode, or a Keycloak that never bound
         // the token, must keep seeing precisely what it sees today.
@@ -144,25 +128,6 @@ class BasetoolIngestClientTest {
     }
 
     @Test
-    fun `a nonce challenge fails loudly and by name instead of being answered`() {
-        // Spring Security 7.1 has no resource-server nonce support at all, so this cannot happen
-        // today. If it ever does, it is named and needs a release — not answered by untested code.
-        server.createContext("/v1/refinery-extract") { ex ->
-            ex.responseHeaders.add(DpopNonce.HEADER, "N-7")
-            respond(ex, 401, "") // Spring's DPoP entry point answers with an EMPTY body
-        }
-
-        val failure =
-            assertFailsWith<IngestException> {
-                BasetoolIngestClient(baseUrl).sendRefinery("tok", "{}", "de", DpopKey.generate())
-            }
-
-        assertEquals(DpopNonce.CODE, failure.code, "the UI keys its wording off this")
-        assertEquals(1, proofs.size, "the challenge must not be answered")
-        assertNull(DpopProofs.claims(proofs.single()!!)["nonce"], "no proof ever carries a nonce")
-    }
-
-    @Test
     fun `an empty body on a 401 does not break the problem parsing`() {
         // Spring's DPoP entry point returns no body at all — a legitimate shape the client must
         // survive rather than fail to decode.
@@ -170,41 +135,11 @@ class BasetoolIngestClientTest {
 
         val failure =
             assertFailsWith<IngestException> {
-                BasetoolIngestClient(baseUrl).sendBlueprint("tok", "{}", "de", DpopKey.generate())
+                BasetoolIngestClient(baseUrl).sendBlueprint("tok", "{}", "de")
             }
 
         assertEquals("", failure.code)
         assertEquals("the basetool rejected the upload (HTTP 401)", failure.message)
-    }
-
-    @Test
-    fun `an iat written from a drifting clock is corrected from the server's Date and retried once`() {
-        val skew = 600L
-        RawHttpServer { attempt, _ ->
-            if (attempt == 1) {
-                RawHttpServer.response("401 Unauthorized", "", skew)
-            } else {
-                RawHttpServer.response(
-                    "200 OK",
-                    """{"handoffId":"H2","kind":"REFINERY","frontendUrl":"https://app/y"}""",
-                    skew,
-                )
-            }
-        }
-            .use { raw ->
-                val response =
-                    BasetoolIngestClient(raw.baseUrl).sendRefinery("tok", "{}", "de", DpopKey.generate())
-
-                assertEquals("H2", response.handoffId)
-                assertEquals(2, raw.received.size, "exactly one retry")
-                val sent = raw.received.map { assertNotNull(it.header("DPoP")) }
-                val shift =
-                    DpopProofs.claim(sent[1], "iat")!!.toLong() - DpopProofs.claim(sent[0], "iat")!!.toLong()
-                assertTrue(
-                    shift in (skew - 5)..(skew + 5),
-                    "the retry's iat must be pulled onto the server's clock, was ${shift}s",
-                )
-            }
     }
 
     @Test
@@ -225,7 +160,7 @@ class BasetoolIngestClientTest {
 
         val failure =
             assertFailsWith<IngestException> {
-                BasetoolIngestClient(baseUrl).sendRefinery("tok", "{}", "de", DpopKey.generate())
+                BasetoolIngestClient(baseUrl).sendRefinery("tok", "{}", "de")
             }
 
         assertEquals(IngestProblem.CLIENT_NOT_ALLOWED, failure.code)
@@ -246,7 +181,7 @@ class BasetoolIngestClientTest {
 
         val failure =
             assertFailsWith<IngestException> {
-                BasetoolIngestClient(baseUrl).sendRefinery("tok", "{}", "de", DpopKey.generate())
+                BasetoolIngestClient(baseUrl).sendRefinery("tok", "{}", "de")
             }
 
         assertEquals("", failure.code)

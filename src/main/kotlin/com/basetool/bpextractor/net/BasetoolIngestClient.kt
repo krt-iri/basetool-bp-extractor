@@ -1,7 +1,5 @@
 package com.basetool.bpextractor.net
 
-import com.basetool.bpextractor.net.auth.DpopKey
-import com.basetool.bpextractor.net.auth.DpopNonce
 import com.basetool.bpextractor.net.auth.ServerClock
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.Json
@@ -11,7 +9,6 @@ import java.net.http.HttpRequest
 import java.net.http.HttpResponse
 import java.time.Duration
 import java.time.Instant
-import kotlin.math.abs
 
 /** The ingest gateway's success answer: where the staged draft was put + the browser landing URL. */
 @Serializable
@@ -68,12 +65,22 @@ class IngestException(message: String, val code: String = "") : Exception(messag
  * {@code UpdateChecker}'s HTTP discipline; surfaces the RFC 7807 {@code detail} (localized via the
  * relayed {@code Accept-Language}).
  *
- * <p>**DPoP (RFC 9449, `REQ-INGEST-012`).** When the caller passes the [DpopKey] the access token is
- * bound to, the request goes out as {@code Authorization: DPoP <token>} with a matching proof that
- * additionally carries {@code ath} — the hash of the very token it accompanies, which is what stops
- * a proof captured on one request from being reused with a different token. Passing {@code null}
- * sends the plain {@code Bearer} of every build so far; the gateway accepts both while its
- * {@code dpop-required} flag is off, so the two modes coexist for the whole migration window.
+ * <p>**Always `Bearer`, never `DPoP` (RFC 9449, `REQ-INGEST-012`).** This client deliberately does
+ * not present a sender-constrained token, because the gateway is a **relay**: it forwards the access
+ * token onward to the basetool backend. A DPoP-bound token is bound to this client's key and, via
+ * `htu`, to the *gateway's* URL — the second hop can neither carry a proof nor be covered by the
+ * first one, so the backend receives a token issued for DPoP as a plain bearer and refuses it. That
+ * is what broke every blueprint send on 2026-08-03, surfacing as the backend's opaque "you must sign
+ * in" three layers from the cause.
+ *
+ * <p>And even where the backend accepted it, the binding would end at the gateway — which is exactly
+ * where it would have to hold. Sender-constraining an access token only pays when the party that
+ * validates it is the party that consumes it.
+ *
+ * <p>DPoP is still very much in use, one layer up: [DeviceGrantClient] proves possession at the
+ * **token endpoint**, so Keycloak binds the **refresh token** — the long-lived credential this app
+ * persists to disk. That is the credential worth protecting; an access token lives five minutes in
+ * memory.
  */
 class BasetoolIngestClient(
     private val baseUrl: String,
@@ -101,7 +108,6 @@ class BasetoolIngestClient(
      * @param accessToken the token obtained via the device grant
      * @param extractJson the serialized {@code RefineryExtract}
      * @param acceptLanguage the UI locale to relay (so backend problems are localized)
-     * @param dpopKey the key [accessToken] is bound to, or {@code null} to send a plain bearer
      * @return the gateway handoff (id, kind, frontend URL)
      * @throws IngestException with the gateway's problem detail on any non-2xx / failure
      */
@@ -109,8 +115,7 @@ class BasetoolIngestClient(
         accessToken: String,
         extractJson: String,
         acceptLanguage: String,
-        dpopKey: DpopKey? = null,
-    ): IngestResponse = send("/v1/refinery-extract", accessToken, extractJson, acceptLanguage, dpopKey)
+    ): IngestResponse = send("/v1/refinery-extract", accessToken, extractJson, acceptLanguage)
 
     /**
      * Sends a blueprint export JSON document and returns the handoff.
@@ -118,7 +123,6 @@ class BasetoolIngestClient(
      * @param accessToken the token obtained via the device grant
      * @param blueprintJson the serialized blueprint export
      * @param acceptLanguage the UI locale to relay
-     * @param dpopKey the key [accessToken] is bound to, or {@code null} to send a plain bearer
      * @return the gateway handoff (id, kind, frontend URL)
      * @throws IngestException with the gateway's problem detail on any non-2xx / failure
      */
@@ -126,41 +130,25 @@ class BasetoolIngestClient(
         accessToken: String,
         blueprintJson: String,
         acceptLanguage: String,
-        dpopKey: DpopKey? = null,
-    ): IngestResponse = send("/v1/blueprint-preview", accessToken, blueprintJson, acceptLanguage, dpopKey)
+    ): IngestResponse = send("/v1/blueprint-preview", accessToken, blueprintJson, acceptLanguage)
 
     private fun send(
         path: String,
         accessToken: String,
         bodyJson: String,
         acceptLanguage: String,
-        dpopKey: DpopKey?,
     ): IngestResponse {
         val uri = URI.create(baseUrl.trimEnd('/') + path)
-        val offsetBefore = clock.offsetSeconds()
-        var response =
+        // Nothing is retried. A 403 CLIENT_NOT_ALLOWED is permanent by construction (the same binary
+        // is refused every time), and the clock-correction retry that used to live here only ever
+        // made sense for a DPoP proof's `iat` window — a plain bearer has no such window. The clock
+        // is still observed below, because the token-endpoint proofs in DeviceGrantClient need it.
+        val response =
             try {
-                post(uri, accessToken, bodyJson, acceptLanguage, dpopKey)
+                post(uri, accessToken, bodyJson, acceptLanguage)
             } catch (e: Exception) {
                 throw IngestException("could not reach the basetool: ${e.message}")
             }
-        // Exactly one retry, and only when this machine's clock turned out to be far enough off the
-        // server's that the first proof's `iat` fell outside its window — the second one is written
-        // from the corrected clock and cannot fail the same way, so this can never loop. Nothing
-        // else is retried: a 403 CLIENT_NOT_ALLOWED is permanent (the same binary is refused every
-        // time) and a nonce challenge is reported rather than answered ([DpopNonce]).
-        val clockJustCorrected =
-            dpopKey != null &&
-                (response.statusCode() == 400 || response.statusCode() == 401) &&
-                abs(clock.offsetSeconds() - offsetBefore) >= ServerClock.MATERIAL_SECONDS
-        if (clockJustCorrected) {
-            response =
-                try {
-                    post(uri, accessToken, bodyJson, acceptLanguage, dpopKey)
-                } catch (e: Exception) {
-                    throw IngestException("could not reach the basetool: ${e.message}")
-                }
-        }
         if (response.statusCode() in 200..299) {
             return try {
                 json.decodeFromString<IngestResponse>(response.body())
@@ -172,19 +160,8 @@ class BasetoolIngestClient(
             try {
                 json.decodeFromString<IngestProblem>(response.body())
             } catch (_: Exception) {
-                // Spring's DPoP entry point answers 401 with an EMPTY body — a legitimate shape here.
                 null
             }
-        // A nonce challenge (RFC 9449 §8) is named rather than answered: this build does not speak
-        // the handshake, so say so instead of failing under some generic message. The gateway sends
-        // no problem body on that path, hence the client-synthesized code.
-        if (dpopKey != null && isNonceChallenge(response)) {
-            DpopNonce.reportChallenge(uri.toString())
-            throw IngestException(
-                problemDetail(problem, response.statusCode()),
-                DpopNonce.CODE,
-            )
-        }
         throw IngestException(problemDetail(problem, response.statusCode()), problem?.code.orEmpty())
     }
 
@@ -193,44 +170,27 @@ class BasetoolIngestClient(
         accessToken: String,
         bodyJson: String,
         acceptLanguage: String,
-        dpopKey: DpopKey?,
     ): HttpResponse<String> {
-        val builder =
+        val request =
             HttpRequest.newBuilder(uri)
                 .timeout(Duration.ofSeconds(30))
-                // RFC 9449 §7.1: a sender-constrained token travels under the DPoP scheme, never
-                // Bearer — presenting a bound token as a bearer is exactly the downgrade the
-                // gateway logs as suspicious.
-                .header("Authorization", if (dpopKey == null) "Bearer $accessToken" else "DPoP $accessToken")
+                // Always Bearer. See the class doc: the gateway relays this token to the backend, so
+                // a sender-constrained one cannot survive the second hop.
+                .header("Authorization", "Bearer $accessToken")
                 .header("Content-Type", "application/json")
                 .header("Accept", "application/json")
                 .header("Accept-Language", acceptLanguage)
                 .POST(HttpRequest.BodyPublishers.ofString(bodyJson))
-        if (dpopKey != null) {
-            builder.header(
-                "DPoP",
-                dpopKey.proof(
-                    htm = "POST",
-                    htu = DpopKey.htu(uri),
-                    accessToken = accessToken,
-                    issuedAt = clock.now(),
-                ),
-            )
-        }
+                .build()
         val sentAt = Instant.now()
-        val response = http.send(builder.build(), HttpResponse.BodyHandlers.ofString())
+        val response = http.send(request, HttpResponse.BodyHandlers.ofString())
+        // Keep observing the server clock even without a proof here: DeviceGrantClient's
+        // token-endpoint proofs are written from the same estimate, and Keycloak allows only a 15 s
+        // skew, so every extra sample is worth having.
         clock.observe(response.headers().firstValue("Date").orElse(null), sentAt)
         return response
     }
 
-    /**
-     * Whether the answer is RFC 9449 §8's nonce challenge — the server supplying a `DPoP-Nonce` on
-     * one of the two statuses a proof rejection uses. Narrow on purpose, so no ordinary rejection (a
-     * `400 VALIDATION_FAILED`, a `403 CLIENT_NOT_ALLOWED`) is ever mistaken for one.
-     */
-    private fun isNonceChallenge(response: HttpResponse<String>): Boolean =
-        (response.statusCode() == 400 || response.statusCode() == 401) &&
-            response.headers().firstValue(DpopNonce.HEADER).isPresent
 
     /**
      * Extracts the RFC 7807 {@code detail} (already localized); appends the per-field validation
