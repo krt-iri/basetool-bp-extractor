@@ -5,13 +5,19 @@ import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFalse
 import kotlin.test.assertNotNull
+import kotlin.test.assertNull
 import kotlin.test.assertTrue
 
 class BlueprintParserTest {
 
-    private fun sampleFile(): File {
-        val url = requireNotNull(javaClass.classLoader.getResource("sample.log")) {
-            "sample.log test resource missing"
+    private fun sampleFile(): File = resource("sample.log")
+
+    /** A synthetic log from a German-localised client — see [BlueprintParser] on localised labels. */
+    private fun germanSampleFile(): File = resource("sample-de.log")
+
+    private fun resource(name: String): File {
+        val url = requireNotNull(javaClass.classLoader.getResource(name)) {
+            "$name test resource missing"
         }
         return File(url.toURI())
     }
@@ -97,5 +103,88 @@ class BlueprintParserTest {
         sampleFile().copyTo(tmp, overwrite = true)
         val bp = BlueprintParser.parseFile(tmp).blueprints.first()
         assertEquals("11518367", bp.gameBuild)
+    }
+
+    // --- localised client (the label is translated, the line around it is not) ------
+
+    @Test
+    fun `reads blueprints from a German-localised client`() {
+        val result = BlueprintParser.parseFile(germanSampleFile())
+        assertEquals(
+            listOf("Attrition-5 Repeater", "Scalpel Sniper Rifle Magazine (12 Schuss)"),
+            result.blueprints.map { it.productName },
+        )
+    }
+
+    @Test
+    fun `the German label counts once despite the follow-up notification lines`() {
+        val bp = BlueprintParser.parseFile(germanSampleFile()).blueprints
+        assertEquals(1, bp.count { it.productName == "Attrition-5 Repeater" })
+    }
+
+    @Test
+    fun `a localised non-blueprint notification of the same shape is not picked up`() {
+        // The prefilter now stops at `Added notification "`, so the label whitelist is the only
+        // thing keeping other notification kinds out — in every language.
+        val bp = BlueprintParser.parseFile(germanSampleFile()).blueprints
+        assertFalse(bp.any { it.productName.contains("Aberdeen") })
+        assertFalse(BlueprintParser.parseFile(sampleFile()).blueprints.any { it.productName.contains("Aberdeen") })
+    }
+
+    @Test
+    fun `the label is matched case-insensitively, the engine literal around it is not`() {
+        val tmp = File.createTempFile("case", ".log")
+        tmp.deleteOnExit()
+        tmp.writeText(
+            // Label in a different case: still a blueprint.
+            """<2026-05-02T20:11:04.132Z> [Notice] <SHUDEvent_OnNotification> Added notification """ +
+                """"BAUPLAN Erhalten: Attrition-5 Repeater: " [136] to queue. NEW QUEUE SIZE: 4""" + "\n" +
+                // `Added notification "` is a compile-time literal in the game binary; a line that
+                // does not carry it verbatim is not an SC notification line at all.
+                """<2026-05-02T20:12:04.132Z> [Notice] <SHUDEvent_OnNotification> ADDED NOTIFICATION """ +
+                """"Received Blueprint: Ghost Rifle: " [137] to queue. New queue size: 1""",
+        )
+        val bp = BlueprintParser.parseFile(tmp).blueprints
+        assertEquals(listOf("Attrition-5 Repeater"), bp.map { it.productName })
+        assertEquals(4, bp.single().queueSize)
+    }
+
+    @Test
+    fun `captures id and queue size on a localised line too`() {
+        val bp = BlueprintParser.parseFile(germanSampleFile()).blueprints
+            .first { it.productName == "Scalpel Sniper Rifle Magazine (12 Schuss)" }
+        assertEquals("2026-05-02T20:19:47.865Z", bp.receivedAt)
+        assertEquals(141, bp.notificationId)
+        assertEquals(2, bp.queueSize)
+    }
+
+    // --- build number from the header (the live Game.log has none in its name) ------
+
+    @Test
+    fun `falls back to the BackupNameAttachment header when the file name carries no build`() {
+        // sample-de.log's own name has no `Build(n)`, exactly like a live Game.log.
+        val bp = BlueprintParser.parseFile(germanSampleFile()).blueprints.first()
+        assertEquals("11875683", bp.gameBuild)
+    }
+
+    @Test
+    fun `the file name wins over the header when both state a build`() {
+        val tmp = File.createTempFile("Game Build(11518367) 26 Mar 26 (17 24 58)", ".log")
+        tmp.deleteOnExit()
+        germanSampleFile().copyTo(tmp, overwrite = true) // header says 11875683
+        val bp = BlueprintParser.parseFile(tmp).blueprints.first()
+        assertEquals("11518367", bp.gameBuild)
+    }
+
+    @Test
+    fun `no build at all stays null rather than guessing`() {
+        val tmp = File.createTempFile("plain", ".log")
+        tmp.deleteOnExit()
+        tmp.writeText(
+            """<2026-04-04T18:00:00.000Z> [Notice] <SHUDEvent_OnNotification> Added notification """ +
+                """"Received Blueprint: Lancet MH2 Mining Laser: " [90] to queue. New queue size: 1, """ +
+                """MissionId: [00000000-0000-0000-0000-000000000000], ObjectiveId: [] [Team_CoreGameplayFeatures]""",
+        )
+        assertNull(BlueprintParser.parseFile(tmp).blueprints.single().gameBuild)
     }
 }
