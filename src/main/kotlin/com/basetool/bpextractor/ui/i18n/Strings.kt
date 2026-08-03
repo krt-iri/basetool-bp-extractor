@@ -27,6 +27,12 @@ class SendStrings(
     val openInBasetool: String,
     val saveLocally: String,
     val error: (String) -> String,
+    /**
+     * The gateway's `403 CLIENT_NOT_ALLOWED` (`REQ-INGEST-011`): this client software is not on the
+     * server-side allowlist. Distinct from [error] because it is permanent — a retry is pointless —
+     * and the user needs to be told what would actually fix it.
+     */
+    val errorClientNotAllowed: (String) -> String,
 )
 
 /**
@@ -305,6 +311,10 @@ interface Strings {
     val rfExportSuccess: (String) -> String
     /** Blocks the send when rows carry no quantity (the basetool ingest edge rejects a null qty). */
     val rfSendBlockedMissingQty: (Int) -> String
+    /** Blocks the send when an order has no goods rows (`goods` is @NotEmpty at the ingest edge). */
+    val rfSendBlockedNoGoods: String
+    /** Blocks the send when an order has no source images (`sourceImages` is @NotEmpty there too). */
+    val rfSendBlockedNoSourceImages: String
     val rfUploadCardTitle: String
     val rfUploadSteps: List<String>
     val rfProvenanceTitle: String
@@ -625,6 +635,13 @@ object StringsDe : Strings {
         "Senden nicht möglich: Bei $n Zeile(n) konnte die Menge nicht gelesen werden. Bitte im Schritt " +
             "„Review“ die betroffenen Zeilen korrigieren (✎) oder die Screenshots in höherer Auflösung neu aufnehmen."
     }
+    override val rfSendBlockedNoGoods =
+        "Senden nicht möglich: Der Auftrag enthält keine einzige Warenzeile. Das Basetool nimmt nur " +
+            "Aufträge mit mindestens einer Zeile an. Bitte einen Screenshot verwenden, der die " +
+            "Warenliste vollständig zeigt, und die Extraktion wiederholen."
+    override val rfSendBlockedNoSourceImages =
+        "Senden nicht möglich: Zum Auftrag ist kein Quell-Screenshot hinterlegt. Das Basetool verlangt " +
+            "mindestens einen als Nachweis. Bitte die Extraktion mit den Screenshots erneut starten."
     override val rfUploadCardTitle = "In das Basetool hochladen"
     override val rfUploadSteps = listOf(
         "1. Basetool öffnen → Refinery → Aufträge.",
@@ -695,6 +712,13 @@ object StringsDe : Strings {
             openInBasetool = "Im Basetool öffnen",
             saveLocally = "Stattdessen als JSON speichern",
             error = { msg -> "Versand fehlgeschlagen: $msg" },
+            errorClientNotAllowed = { msg ->
+                "Versand abgelehnt: Das Basetool nimmt Daten nur von freigegebenen Programmen an, und " +
+                    "dieses hier steht nicht auf der Liste. Ein erneuter Versuch ändert daran nichts. " +
+                    "Bitte eine offizielle Version des Basetool SC Extractors verwenden (siehe " +
+                    "GitHub-Releases) und bei bestehender Freigabe @greluc kontaktieren.\n\nMeldung " +
+                    "des Basetools: $msg"
+            },
         )
     override val account =
         AccountStrings(
@@ -984,6 +1008,12 @@ object StringsEn : Strings {
         "Cannot send: $n row(s) have no quantity read. Correct the affected rows in the review step (✎) " +
             "or re-capture the screenshots at a higher resolution."
     }
+    override val rfSendBlockedNoGoods =
+        "Cannot send: the order contains no goods row at all. The basetool only accepts orders with at " +
+            "least one row. Use a screenshot that shows the full goods list and run the extraction again."
+    override val rfSendBlockedNoSourceImages =
+        "Cannot send: the order has no source screenshot attached. The basetool requires at least one as " +
+            "provenance. Start the extraction again with the screenshots."
     override val rfUploadCardTitle = "Upload into the basetool"
     override val rfUploadSteps = listOf(
         "1. Open the basetool → Refinery → Orders.",
@@ -1051,6 +1081,12 @@ object StringsEn : Strings {
             openInBasetool = "Open in basetool",
             saveLocally = "Save as JSON instead",
             error = { msg -> "Send failed: $msg" },
+            errorClientNotAllowed = { msg ->
+                "Send refused: the basetool only accepts data from approved programs, and this one is " +
+                    "not on the list. Trying again will not change that. Please use an official build " +
+                    "of the Basetool SC Extractor (see the GitHub releases) and contact @greluc if you " +
+                    "believe it should be approved.\n\nBasetool said: $msg"
+            },
         )
     override val account =
         AccountStrings(

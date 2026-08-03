@@ -70,6 +70,16 @@ Run from the **repo root** (not a subfolder), with **JDK 25** active. On Windows
    (or any second font family) into version control.
 5. **Don't re-litigate the packaging decision.** Single-exe/portable approaches
    (warp-packer, IExpress, .NET bootstrapper) were explored and rejected. Ship the MSI.
+6. **The basetool ingest interface is for clients @greluc has approved — only.** The
+   gateway matches the token's `azp`, its scope and the payload's `tool` field against
+   server-side allowlists and answers `403 CLIENT_NOT_ALLOWED` to anything else
+   (`REQ-INGEST-011`; spec `docs/specs/desktop-ingest.md` in the basetool repo). That
+   gates the *software*, not the people — every member may upload, with the approved
+   extractor. Practically: `DeviceGrantClient.CLIENT_ID` and `RefineryPipeline.TOOL`
+   (both `"basetool-sc-extractor"`) are **contractual constants**. Never rename them as
+   a drive-by; it is a two-sided rotation (add the new value to the server allowlist,
+   ship, drop the old one once its `client_id` metric is quiet). Don't add a second
+   ingest client, and don't work around a 403 — ask for an allowlist entry instead.
 
 ## Architecture / data flow
 
@@ -102,6 +112,22 @@ Run from the **repo root** (not a subfolder), with **JDK 25** active. On Windows
   deletes the MSI, itself and the folder again; `cleanupLeftovers()` sweeps that folder
   on every GUI start as the crash fallback. Only release metadata is fetched; nothing
   is uploaded.
+- **`net/`** — the only outbound path besides the update check. `BasetoolIngestClient`
+  POSTs an export to the gateway and surfaces the RFC 7807 `detail` (+ `fieldErrors`);
+  `auth/DeviceGrantClient` runs the RFC 8628 device grant against the **prod** Keycloak
+  (hardcoded issuer; only the ingest base URL is config), `auth/CredentialStore` is the
+  DPAPI-backed vault for the one "remember me" `StoredCredential`.
+  **DPoP (RFC 9449, `REQ-INGEST-012`)** binds those tokens to a client-held EC P-256 key
+  (`auth/Dpop.kt`) so the refresh token sitting on disk is worthless if copied. Load-
+  bearing details: the key is persisted *with* the refresh token in one record (a bound
+  token is unredeemable without it, and a legacy bare-token blob still decodes); the
+  proof is **always offered** at the token endpoint but the `DPoP` scheme is used at the
+  gateway **only when the answer's `token_type` says the server actually bound the
+  token**, which is what keeps a released build working against a Keycloak or gateway
+  that has DPoP off; the authorization server's and the gateway's `DPoP-Nonce` values are
+  separate and each retries exactly **once**. Pure JDK crypto on purpose — `SunEC` is in
+  `java.base` on JDK 25, so no JOSE dependency and no extra jlink module. Never log a
+  key, a proof or a token.
 - **`Main.kt`** — entry point: opens the Compose GUI (`guiMain`). Keep
   the GUI a thin shell over `BlueprintExtractor`; business logic stays in the parser/
   extractor so tests cover it without a UI. `guiMain` also owns the update flow state

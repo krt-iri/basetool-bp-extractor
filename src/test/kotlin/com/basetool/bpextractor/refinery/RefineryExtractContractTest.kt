@@ -4,6 +4,8 @@ import com.basetool.bpextractor.refinery.model.RefineryExtract
 import com.basetool.bpextractor.refinery.model.RefineryExtractGood
 import com.basetool.bpextractor.refinery.model.RefineryExtractImage
 import com.basetool.bpextractor.refinery.model.RefineryExtractOrder
+import com.basetool.bpextractor.refinery.model.ordersMissingGoods
+import com.basetool.bpextractor.refinery.model.ordersMissingSourceImages
 import com.basetool.bpextractor.refinery.model.rowsMissingQuantity
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.jsonObject
@@ -185,6 +187,56 @@ class RefineryExtractContractTest {
         )
         // A single unreadable row is enough to block, and only that row is reported.
         assertEquals(listOf(1), extractOf(good(0, 60), good(1, null), good(2, 43)).rowsMissingQuantity())
+    }
+
+    @Test
+    fun `the empty-list guards flag exactly the orders the tightened contract rejects`() {
+        // `orders[].sourceImages` and `orders[].goods` became @NotEmpty with the ADR-0008 amendment
+        // (REQ-INGEST-010). This producer fills both, so the guard exists to name the violation
+        // locally instead of letting the user run into an opaque 400 from the edge.
+        fun order(images: Int, rows: Int) = RefineryExtractOrder(
+            panelType = "SETUP",
+            quoted = true,
+            layoutConfidence = 0.4,
+            sourceImages = (0 until images).map { RefineryExtractImage("a$it.png", 850, 1005, "vlm") },
+            goods = (0 until rows).map {
+                RefineryExtractGood(
+                    rowIndex = it,
+                    rawMaterialName = "AGRICIUM (ORE)",
+                    quality = 588,
+                    inputQuantity = 11_992,
+                    outputQuantity = null,
+                    refine = true,
+                    confidence = 0.4,
+                    sourceImage = "a0.png",
+                )
+            },
+        )
+        fun extractOf(vararg orders: RefineryExtractOrder) = RefineryExtract(
+            tool = "basetool-sc-extractor",
+            toolVersion = "0.0.0-test",
+            model = "qwen3-vl:8b-instruct",
+            generatedAt = "2026-07-21T00:00:00Z",
+            orders = orders.toList(),
+        )
+
+        // What the pipeline actually produces: one order, one screenshot, rows read from it.
+        val healthy = extractOf(order(images = 1, rows = 3))
+        assertEquals(emptyList(), healthy.ordersMissingSourceImages())
+        assertEquals(emptyList(), healthy.ordersMissingGoods())
+
+        // A capture whose row area was cropped away stitches to zero rows — reachable in practice.
+        assertEquals(listOf(0), extractOf(order(images = 1, rows = 0)).ordersMissingGoods())
+        assertEquals(emptyList(), extractOf(order(images = 1, rows = 0)).ordersMissingSourceImages())
+
+        // Provenance lost — a can't-happen the edge contract nonetheless refuses.
+        assertEquals(listOf(0), extractOf(order(images = 0, rows = 2)).ordersMissingSourceImages())
+        assertEquals(emptyList(), extractOf(order(images = 0, rows = 2)).ordersMissingGoods())
+
+        // Only the offending order is reported, by index, even though v1 emits just one.
+        val mixed = extractOf(order(1, 2), order(1, 0), order(0, 0))
+        assertEquals(listOf(1, 2), mixed.ordersMissingGoods())
+        assertEquals(listOf(2), mixed.ordersMissingSourceImages())
     }
 
     private fun kotlinx.serialization.json.JsonElement.jsonObject(index: Int) =

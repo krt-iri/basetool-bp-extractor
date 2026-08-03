@@ -1,5 +1,7 @@
 package com.basetool.bpextractor.net.auth
 
+import kotlinx.serialization.Serializable
+import kotlinx.serialization.json.Json
 import java.lang.foreign.Arena
 import java.lang.foreign.FunctionDescriptor
 import java.lang.foreign.Linker
@@ -9,11 +11,64 @@ import java.lang.foreign.ValueLayout
 import java.nio.charset.StandardCharsets
 
 /**
- * The per-user OS secret store for the single "remember me" refresh token (epic
+ * The persisted "remember me" credential: the refresh token **and** the DPoP key it is bound to
+ * (RFC 9449, `REQ-INGEST-012`). The two travel as one record on purpose — a sender-constrained
+ * refresh token cannot be redeemed without its private key, and a key without its token is dead
+ * weight, so storing them apart would only create ways for them to drift out of step. One record
+ * also means "Vom Basetool trennen" ([CredentialStore.clear]) still disposes of everything at once.
+ *
+ * @param refreshToken the Keycloak refresh token
+ * @param dpopKey the [DpopKey.encoded] key pair the token is bound to, or `null` for a token
+ *   obtained without DPoP (a record written by an older build, or a Keycloak that did not bind)
+ */
+@Serializable
+data class StoredCredential(val refreshToken: String, val dpopKey: String? = null) {
+
+    companion object {
+        private val JSON = Json { ignoreUnknownKeys = true }
+
+        /**
+         * Serializes the record for [CredentialStore.save].
+         *
+         * @param credential the record to encode
+         * @return the opaque blob to hand to the vault — **secret**, never log it
+         */
+        fun encode(credential: StoredCredential): String =
+            JSON.encodeToString(serializer(), credential)
+
+        /**
+         * Reads a blob back. A blob that is not a JSON object is a **legacy** entry — builds before
+         * DPoP stored the bare refresh token — and is read as exactly that, with no key; the next
+         * successful login rewrites it in the current shape. A corrupt JSON record yields `null`
+         * (fail-safe, like the store itself), so the caller falls back to an interactive login
+         * instead of redeeming garbage.
+         *
+         * @param blob whatever [CredentialStore.load] returned
+         * @return the record, or `null` when the blob is unusable
+         */
+        fun decode(blob: String): StoredCredential? =
+            if (!blob.startsWith("{")) {
+                StoredCredential(blob)
+            } else {
+                try {
+                    JSON.decodeFromString(serializer(), blob).takeIf { it.refreshToken.isNotBlank() }
+                } catch (_: Exception) {
+                    null
+                }
+            }
+    }
+}
+
+/**
+ * The per-user OS secret store for the single "remember me" credential (epic
  * krt-profit/basetool#639, sub-issue #648). One secret, one fixed target — the abstraction is
  * parameterless so callers cannot smear secrets across keys. Implementations must be **fail-safe**:
  * a store that is unavailable (wrong OS, locked vault) returns "no credential" rather than throwing,
  * so the send flow simply falls back to a fresh device-grant login.
+ *
+ * <p>Implementations deal in opaque strings only; [StoredCredential] is layered on top via
+ * [saveCredential]/[loadCredential] so the record shape can evolve without touching any vault
+ * binding.
  */
 interface CredentialStore {
 
@@ -45,6 +100,22 @@ interface CredentialStore {
      * @return {@code true} when {@link #load()} would return a non-null value
      */
     fun exists(): Boolean = load() != null
+
+    /**
+     * Persists the refresh token together with the DPoP key it is bound to.
+     *
+     * @param credential the record to store
+     * @return {@code true} on success, {@code false} if the store is unavailable or the write failed
+     */
+    fun saveCredential(credential: StoredCredential): Boolean =
+        save(StoredCredential.encode(credential))
+
+    /**
+     * Reads the stored credential, transparently upgrading a legacy bare-refresh-token entry.
+     *
+     * @return the record, or {@code null} when nothing usable is stored
+     */
+    fun loadCredential(): StoredCredential? = load()?.let { StoredCredential.decode(it) }
 }
 
 /**

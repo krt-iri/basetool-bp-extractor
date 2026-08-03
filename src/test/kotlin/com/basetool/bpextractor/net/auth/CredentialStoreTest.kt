@@ -4,6 +4,7 @@ import java.util.UUID
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFalse
+import kotlin.test.assertNotNull
 import kotlin.test.assertNull
 import kotlin.test.assertTrue
 
@@ -32,6 +33,44 @@ class CredentialStoreTest {
         assertTrue(store.clear())
         assertNull(store.load())
         assertFalse(store.exists())
+    }
+
+    @Test
+    fun `a credential round-trips the refresh token together with its DPoP key`() {
+        // The two must stay one record: a sender-constrained refresh token is unredeemable without
+        // the key it was issued to (REQ-INGEST-012), so they can never be allowed to drift apart.
+        val store = FakeCredentialStore()
+        val key = DpopKey.generate()
+
+        store.saveCredential(StoredCredential("RT-1", key.encoded()))
+        val loaded = assertNotNull(store.loadCredential())
+
+        assertEquals("RT-1", loaded.refreshToken)
+        assertEquals(
+            key.thumbprint,
+            assertNotNull(DpopKey.fromEncoded(assertNotNull(loaded.dpopKey))).thumbprint,
+            "the key that comes back has to be the same key",
+        )
+    }
+
+    @Test
+    fun `a legacy bare refresh token is still readable and simply carries no key`() {
+        // What every build before DPoP wrote into the vault. It must keep working — the refresh then
+        // mints a bound token against a fresh key, and the next save rewrites the entry.
+        val store = FakeCredentialStore("eyJhbGciOiJIUzI1NiJ9.legacy-refresh-token")
+
+        val loaded = assertNotNull(store.loadCredential())
+
+        assertEquals("eyJhbGciOiJIUzI1NiJ9.legacy-refresh-token", loaded.refreshToken)
+        assertNull(loaded.dpopKey)
+    }
+
+    @Test
+    fun `a corrupt record reads as absent rather than as a garbage token`() {
+        // Fail-safe: the caller falls back to an interactive login instead of redeeming nonsense.
+        assertNull(FakeCredentialStore("""{"refreshToken":""}""").loadCredential())
+        assertNull(FakeCredentialStore("""{"refreshToken":"RT-1",""").loadCredential())
+        assertNull(FakeCredentialStore("""{}""").loadCredential())
     }
 
     @Test

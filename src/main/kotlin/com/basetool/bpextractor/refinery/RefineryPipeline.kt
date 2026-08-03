@@ -301,7 +301,15 @@ class RefineryPipeline(
     }
 
     companion object {
-        /** Contract `tool` field (provenance). */
+        /**
+         * Contract `tool` field (provenance).
+         *
+         * <p>**Contractual — do not change casually.** The ingest gateway checks this value against
+         * a server-side allowlist (`REQ-INGEST-011`, `APP_INGEST_CLIENT_IDENTITY_ALLOWED_TOOLS`) and
+         * answers {@code 403 CLIENT_NOT_ALLOWED} for anything else, so renaming it here silently
+         * breaks every send until the server list is updated to match. Change it only together with
+         * that list — the same discipline as [DeviceGrantClient.CLIENT_ID][com.basetool.bpextractor.net.auth.DeviceGrantClient.CLIENT_ID].
+         */
         const val TOOL = "basetool-sc-extractor"
 
         private val JSON = Json {

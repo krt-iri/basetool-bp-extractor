@@ -26,6 +26,7 @@ import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.unit.dp
+import com.basetool.bpextractor.net.IngestProblem
 import com.basetool.bpextractor.ui.i18n.LocalStrings
 import kotlinx.coroutines.CoroutineScope
 
@@ -155,7 +156,15 @@ fun SendOverlay(
                         )
                     is SendState.Error ->
                         Text(
-                            strings.send.error(state.message),
+                            // CLIENT_NOT_ALLOWED is not a hiccup — the gateway refuses this client
+                            // software outright (REQ-INGEST-011), and it will refuse it again on
+                            // every attempt. Say so in plain language instead of echoing a server
+                            // sentence that reads like something a retry could fix.
+                            if (state.code == IngestProblem.CLIENT_NOT_ALLOWED) {
+                                strings.send.errorClientNotAllowed(state.message)
+                            } else {
+                                strings.send.error(state.message)
+                            },
                             style = MaterialTheme.typography.bodyMedium,
                             color = Krt.Gray1,
                         )

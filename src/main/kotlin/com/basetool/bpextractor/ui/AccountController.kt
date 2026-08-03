@@ -5,6 +5,7 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
 import com.basetool.bpextractor.net.auth.CredentialStore
 import com.basetool.bpextractor.net.auth.DeviceGrantClient
+import com.basetool.bpextractor.net.auth.DpopKey
 import com.basetool.bpextractor.net.auth.WinCredentialStore
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -61,7 +62,11 @@ class AccountController(
         working = true
         scope.launch {
             withContext(Dispatchers.IO) {
-                credentialStore.load()?.let { deviceGrant.revoke(it) }
+                // A DPoP-bound refresh token is only revocable with a proof from the key it was
+                // issued to, which is why the two are stored as one record (REQ-INGEST-012).
+                credentialStore.loadCredential()?.let { stored ->
+                    deviceGrant.revoke(stored.refreshToken, stored.dpopKey?.let(DpopKey::fromEncoded))
+                }
                 credentialStore.clear()
             }
             connected = credentialStore.exists()
