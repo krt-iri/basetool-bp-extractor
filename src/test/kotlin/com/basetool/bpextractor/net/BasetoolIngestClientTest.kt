@@ -20,7 +20,15 @@ import kotlin.test.assertTrue
  * bearer + Accept-Language relay, the success parse, RFC 7807 detail surfacing, and the
  * https-or-localhost guard. No real credentials / network (CLAUDE.md test rule).
  */
+import kotlinx.serialization.json.jsonPrimitive
+
 class BasetoolIngestClientTest {
+
+    /**
+     * The key every proof in this file is signed with. Since ADR-0129 the gateway validates the
+     * proof itself, so the send path needs one on every call.
+     */
+    private val testKey = com.basetool.bpextractor.net.auth.DpopKey.generate()
 
     private lateinit var server: HttpServer
     private lateinit var baseUrl: String
@@ -57,11 +65,11 @@ class BasetoolIngestClientTest {
         server.createContext("/v1/refinery-extract") { ex ->
             respond(ex, 200, """{"handoffId":"H1","kind":"REFINERY","frontendUrl":"https://app/x?handoff=H1"}""")
         }
-        val response = BasetoolIngestClient(baseUrl).sendRefinery("tok-123", "{\"schemaVersion\":1}", "de")
+        val response = BasetoolIngestClient(baseUrl).sendRefinery("tok-123", "{\"schemaVersion\":1}", "de", testKey)
         assertEquals("H1", response.handoffId)
         assertEquals("REFINERY", response.kind)
         assertEquals("https://app/x?handoff=H1", response.frontendUrl)
-        assertEquals("Bearer tok-123", seenAuth)
+        assertEquals("DPoP tok-123", seenAuth)
         assertEquals("de", seenLang)
     }
 
@@ -77,7 +85,7 @@ class BasetoolIngestClientTest {
         }
         val ex =
             assertFailsWith<IngestException> {
-                BasetoolIngestClient(baseUrl).sendRefinery("tok", "{}", "de")
+                BasetoolIngestClient(baseUrl).sendRefinery("tok", "{}", "de", testKey)
             }
         assertEquals("Nicht unterstützte schemaVersion.", ex.message)
     }
@@ -98,7 +106,7 @@ class BasetoolIngestClientTest {
         }
         val ex =
             assertFailsWith<IngestException> {
-                BasetoolIngestClient(baseUrl).sendRefinery("tok", "{}", "de")
+                BasetoolIngestClient(baseUrl).sendRefinery("tok", "{}", "de", testKey)
             }
         assertEquals(
             "Validation failed. (orders[0].goods[3].inputQuantity: must not be null)",
@@ -114,18 +122,38 @@ class BasetoolIngestClientTest {
     // --- DPoP (RFC 9449, REQ-INGEST-012) -------------------------------------------------------
 
     @Test
-    fun `without a key the request stays exactly the bearer every shipped build sends`() {
-        // The whole migration rests on this: a gateway in dual mode, or a Keycloak that never bound
-        // the token, must keep seeing precisely what it sees today.
+    fun `the proof is bound to this token and this url, so it cannot be lifted`() {
+        // The two claims that make a proof worth anything. `ath` ties it to the access token it
+        // accompanies, `htu` to the endpoint it was minted for — without them a captured proof
+        // could be replayed against another request. Spring checks both, `ath` unconditionally.
         server.createContext("/v1/blueprint-preview") { ex ->
             respond(ex, 200, """{"handoffId":"B1","kind":"BLUEPRINT","frontendUrl":"https://app/bp"}""")
         }
 
-        BasetoolIngestClient(baseUrl).sendBlueprint("tok-123", "{}", "de")
+        BasetoolIngestClient(baseUrl).sendBlueprint("tok-123", "{}", "de", testKey)
 
-        assertEquals("Bearer tok-123", seenAuth)
-        assertNull(proofs.single(), "no key ⇒ no DPoP header")
+        assertEquals("DPoP tok-123", seenAuth)
+        val proof = assertNotNull(proofs.single(), "the gateway validates a proof; it must be sent")
+        val claims = claimsOf(proof)
+        assertEquals("POST", claims["htm"]?.jsonPrimitive?.content)
+        assertEquals("$baseUrl/v1/blueprint-preview", claims["htu"]?.jsonPrimitive?.content)
+        assertEquals(
+            base64Url(java.security.MessageDigest.getInstance("SHA-256").digest("tok-123".toByteArray())),
+            claims["ath"]?.jsonPrimitive?.content,
+            "ath must be the SHA-256 of the access token it accompanies",
+        )
     }
+
+    /** Decodes a compact JWS payload into its claims. */
+    private fun claimsOf(jws: String): Map<String, kotlinx.serialization.json.JsonElement> {
+        val payload = String(java.util.Base64.getUrlDecoder().decode(jws.split(".")[1]))
+        return kotlinx.serialization.json.Json.parseToJsonElement(payload)
+            .let { it as kotlinx.serialization.json.JsonObject }
+    }
+
+    /** Base64url without padding, matching what a DPoP proof carries. */
+    private fun base64Url(bytes: ByteArray): String =
+        java.util.Base64.getUrlEncoder().withoutPadding().encodeToString(bytes)
 
     @Test
     fun `an empty body on a 401 does not break the problem parsing`() {
@@ -135,7 +163,7 @@ class BasetoolIngestClientTest {
 
         val failure =
             assertFailsWith<IngestException> {
-                BasetoolIngestClient(baseUrl).sendBlueprint("tok", "{}", "de")
+                BasetoolIngestClient(baseUrl).sendBlueprint("tok", "{}", "de", testKey)
             }
 
         assertEquals("", failure.code)
@@ -160,7 +188,7 @@ class BasetoolIngestClientTest {
 
         val failure =
             assertFailsWith<IngestException> {
-                BasetoolIngestClient(baseUrl).sendRefinery("tok", "{}", "de")
+                BasetoolIngestClient(baseUrl).sendRefinery("tok", "{}", "de", testKey)
             }
 
         assertEquals(IngestProblem.CLIENT_NOT_ALLOWED, failure.code)
@@ -181,7 +209,7 @@ class BasetoolIngestClientTest {
 
         val failure =
             assertFailsWith<IngestException> {
-                BasetoolIngestClient(baseUrl).sendRefinery("tok", "{}", "de")
+                BasetoolIngestClient(baseUrl).sendRefinery("tok", "{}", "de", testKey)
             }
 
         assertEquals("", failure.code)

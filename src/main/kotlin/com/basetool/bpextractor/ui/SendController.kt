@@ -154,19 +154,26 @@ class SendController(
                     }
                 }
                 state = SendState.Sending
-                // The access token always goes out as a plain bearer, never under the DPoP scheme:
-                // the gateway relays it to the basetool backend, and a sender-constrained token
-                // cannot survive that second hop (REQ-INGEST-012, incident 2026-08-03). The DPoP key
-                // is still in play where it pays — proving possession at the token endpoint, so
-                // Keycloak binds the REFRESH token this app persists to disk.
+                // The token goes out under the DPoP scheme with a proof, because the gateway now
+                // VALIDATES that proof itself instead of relaying the token onward (ADR-0129).
+                // Sender-constraining finally pays: the party that checks the proof is the party
+                // that consumes the token. 2.7.x sent the same bound token as a plain bearer, which
+                // a resource server refuses outright — that is what broke every send from
+                // 2026-08-03 (REQ-INGEST-012).
+                // Only a token Keycloak actually bound may go out under the DPoP scheme; an
+                // unbound one must stay a plain bearer or the gateway answers "jkt claim is
+                // required". isDpopBound() reads the server's own token_type.
+                val boundKey = grant.key.takeIf { grant.token.isDpopBound() }
                 val response =
                     withContext(Dispatchers.IO) {
                         val client = ingestClientFor(baseUrl)
                         when (pendingKind) {
                             SendKind.REFINERY ->
-                                client.sendRefinery(grant.token.accessToken, pendingJson, pendingLang)
+                                client.sendRefinery(
+                                    grant.token.accessToken, pendingJson, pendingLang, boundKey)
                             SendKind.BLUEPRINT ->
-                                client.sendBlueprint(grant.token.accessToken, pendingJson, pendingLang)
+                                client.sendBlueprint(
+                                    grant.token.accessToken, pendingJson, pendingLang, boundKey)
                         }
                     }
                 state = SendState.Done(response.frontendUrl)
