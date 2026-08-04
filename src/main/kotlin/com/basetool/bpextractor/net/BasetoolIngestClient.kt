@@ -1,5 +1,7 @@
 package com.basetool.bpextractor.net
 
+
+import com.basetool.bpextractor.net.auth.DpopKey
 import com.basetool.bpextractor.net.auth.ServerClock
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.Json
@@ -115,7 +117,8 @@ class BasetoolIngestClient(
         accessToken: String,
         extractJson: String,
         acceptLanguage: String,
-    ): IngestResponse = send("/v1/refinery-extract", accessToken, extractJson, acceptLanguage)
+        dpopKey: DpopKey?,
+    ): IngestResponse = send("/v1/refinery-extract", accessToken, extractJson, acceptLanguage, dpopKey)
 
     /**
      * Sends a blueprint export JSON document and returns the handoff.
@@ -130,13 +133,15 @@ class BasetoolIngestClient(
         accessToken: String,
         blueprintJson: String,
         acceptLanguage: String,
-    ): IngestResponse = send("/v1/blueprint-preview", accessToken, blueprintJson, acceptLanguage)
+        dpopKey: DpopKey?,
+    ): IngestResponse = send("/v1/blueprint-preview", accessToken, blueprintJson, acceptLanguage, dpopKey)
 
     private fun send(
         path: String,
         accessToken: String,
         bodyJson: String,
         acceptLanguage: String,
+        dpopKey: DpopKey?,
     ): IngestResponse {
         val uri = URI.create(baseUrl.trimEnd('/') + path)
         // Nothing is retried. A 403 CLIENT_NOT_ALLOWED is permanent by construction (the same binary
@@ -145,7 +150,7 @@ class BasetoolIngestClient(
         // is still observed below, because the token-endpoint proofs in DeviceGrantClient need it.
         val response =
             try {
-                post(uri, accessToken, bodyJson, acceptLanguage)
+                post(uri, accessToken, bodyJson, acceptLanguage, dpopKey)
             } catch (e: Exception) {
                 throw IngestException("could not reach the basetool: ${e.message}")
             }
@@ -170,13 +175,33 @@ class BasetoolIngestClient(
         accessToken: String,
         bodyJson: String,
         acceptLanguage: String,
+        dpopKey: DpopKey?,
     ): HttpResponse<String> {
         val request =
             HttpRequest.newBuilder(uri)
                 .timeout(Duration.ofSeconds(30))
-                // Always Bearer. See the class doc: the gateway relays this token to the backend, so
-                // a sender-constrained one cannot survive the second hop.
-                .header("Authorization", "Bearer $accessToken")
+                // FOLLOW THE SERVER, never our own wish to use DPoP. A key is passed only when
+                // Keycloak actually bound the token (token_type: DPoP), because presenting an
+                // UNBOUND token under the DPoP scheme is a hard 401 — Spring's JwkThumbprintValidator
+                // requires cnf.jkt and answers "jkt claim is required".
+                //
+                // When it is bound, the proof goes with it and the gateway validates it itself
+                // (ADR-0129). `ath` binds the proof to THIS access token and `htu` to THIS URL, so
+                // neither can be lifted onto another request. DpopKey.htu normalises scheme/host and
+                // drops a default port to match what the gateway compares against — that comparison
+                // is a byte-exact String.equals on both sides, so the two normalisations must agree.
+                .header(
+                    "Authorization",
+                    if (dpopKey == null) "Bearer $accessToken" else "DPoP $accessToken",
+                )
+                .apply {
+                    if (dpopKey != null) {
+                        header(
+                            "DPoP",
+                            dpopKey.proof(htm = "POST", htu = DpopKey.htu(uri), accessToken = accessToken),
+                        )
+                    }
+                }
                 .header("Content-Type", "application/json")
                 .header("Accept", "application/json")
                 .header("Accept-Language", acceptLanguage)

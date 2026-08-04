@@ -135,11 +135,11 @@ class SendControllerTest {
     // --- DPoP (RFC 9449, REQ-INGEST-012) -------------------------------------------------------
 
     @Test
-    fun `even a bound token goes to the gateway as a bearer, and its key is still persisted`() {
-        // REQ-INGEST-012 / incident 2026-08-03: the gateway RELAYS the access token to the basetool
-        // backend, so a sender-constrained one cannot survive the second hop — presenting it under
-        // the DPoP scheme made the backend refuse every send. The binding that matters is on the
-        // REFRESH token, which is why the key must still be stored alongside it.
+    fun `a bound token goes to the gateway under DPoP with a proof, and its key is persisted`() {
+        // ADR-0129: the gateway VALIDATES the proof now instead of relaying the token onward, so a
+        // sender-constrained token finally pays — the party that checks the proof is the party that
+        // consumes it. 2.7.x sent this same bound token as a plain bearer, which a resource server
+        // refuses outright; that is what broke every send from 2026-08-03.
         server.createContext("/protocol/openid-connect/token") { ex ->
             respond(ex, 200, """{"access_token":"AT","refresh_token":"RT-ROTATED","token_type":"DPoP","expires_in":300}""")
         }
@@ -147,8 +147,8 @@ class SendControllerTest {
 
         runBlocking { controller(store).request(this, SendKind.REFINERY, """{"x":1}""", "de") }
 
-        assertEquals("Bearer AT", ingestAuth, "the ingest call is always a plain bearer")
-        assertNull(ingestProof, "and carries no proof — the gateway does not validate one")
+        assertEquals("DPoP AT", ingestAuth, "a bound token goes out under the DPoP scheme")
+        assertNotNull(ingestProof, "and carries the proof the gateway validates")
 
         // The refresh token and the key that redeems it have to survive together, or the credential
         // is unusable on the next start (a bound refresh token needs its own key).
@@ -158,10 +158,12 @@ class SendControllerTest {
     }
 
     @Test
-    fun `an unbound token keeps the plain bearer — the shipped behaviour is untouched`() {
-        // The load-bearing case: a Keycloak with DPoP off answers token_type=Bearer, and presenting
-        // such a token under the DPoP scheme would be a hard 401 ("jkt claim is required"). The
-        // extractor must therefore follow the server, not its own wish to use DPoP.
+    fun `an unbound token keeps the plain bearer — the extractor follows the server`() {
+        // Still load-bearing, and the reason the key stays optional: a Keycloak with DPoP off
+        // answers token_type=Bearer, and presenting such a token under the DPoP scheme is a hard 401
+        // — Spring's JwkThumbprintValidator requires cnf.jkt and says "jkt claim is required". The
+        // extractor must follow the server, not its own wish to use DPoP. It is also the transition
+        // safety net: the gateway keeps .jwt() alongside .dPoP(), so this path stays accepted.
         server.createContext("/protocol/openid-connect/token") { ex ->
             respond(ex, 200, """{"access_token":"AT","refresh_token":"RT-ROTATED","token_type":"Bearer","expires_in":300}""")
         }
