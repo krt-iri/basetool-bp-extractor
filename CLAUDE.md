@@ -331,9 +331,14 @@ Run from the **repo root** (not a subfolder), with **JDK 25** active. On Windows
   are committed to git; build-time fetch is an option if the repo should stay lean.
 - Gradle **configuration cache is off on purpose** (Compose jpackage tasks aren't
   cc-safe). Don't enable it.
-- **Material3 is pinned to an explicit coordinate** (`org.jetbrains.compose.material3:material3`,
-  stable since the alpha-only days the deprecated `compose.material3` DSL accessor was kept for) —
-  keep its version in step with the `org.jetbrains.compose` plugin when bumping either.
+- **Two Compose artifacts are pinned to explicit coordinates**, because their `compose.*` DSL
+  accessors are deprecated: `org.jetbrains.compose.material3:material3` (stable since the
+  alpha-only days the deprecated `compose.material3` accessor was kept for) and
+  `org.jetbrains.compose.components:components-resources` (was `compose.components.resources`).
+  Bump BOTH whenever the `org.jetbrains.compose` plugin moves — components-resources tracks the
+  plugin version 1:1, while material3's stable line lags it (plugin 1.11.1 ↔ material3 1.9.0), so
+  they are not interchangeable. Check the resolved version with
+  `gradlew dependencies --configuration runtimeClasspath` rather than assuming.
 - **Bundled drawables go through the Compose resources library:** images/SVGs live in
   `src/main/composeResources/drawable/` (lowercase filenames) and are loaded via the generated
   `Res` (`com.basetool.bpextractor.resources`) + `painterResource`, NOT the deprecated
