@@ -30,7 +30,10 @@ dependencies {
     implementation("org.jetbrains.compose.material3:material3:1.9.0")
     // Compose resources library — bundled images/SVGs via the generated `Res` + `painterResource`
     // (replaces the deprecated androidx.compose.ui.res.useResource/loadImageBitmap/loadSvgPainter).
-    implementation(compose.components.resources)
+    // Like material3 above, the `compose.components.resources` DSL accessor is deprecated, so the
+    // coordinate is explicit. This one tracks the Compose plugin version 1:1 (unlike material3,
+    // whose stable line lags) — bump both together with the plugin.
+    implementation("org.jetbrains.compose.components:components-resources:1.11.1")
     implementation("org.jetbrains.kotlinx:kotlinx-serialization-json:1.11.0")
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-swing:1.11.0")
     // Classical-OCR digit cross-check (PP-OCRv3 recognition via ONNX Runtime) — a decorrelated
