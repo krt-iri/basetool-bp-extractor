@@ -67,22 +67,26 @@ class IngestException(message: String, val code: String = "") : Exception(messag
  * {@code UpdateChecker}'s HTTP discipline; surfaces the RFC 7807 {@code detail} (localized via the
  * relayed {@code Accept-Language}).
  *
- * <p>**Always `Bearer`, never `DPoP` (RFC 9449, `REQ-INGEST-012`).** This client deliberately does
- * not present a sender-constrained token, because the gateway is a **relay**: it forwards the access
- * token onward to the basetool backend. A DPoP-bound token is bound to this client's key and, via
- * `htu`, to the *gateway's* URL — the second hop can neither carry a proof nor be covered by the
- * first one, so the backend receives a token issued for DPoP as a plain bearer and refuses it. That
- * is what broke every blueprint send on 2026-08-03, surfacing as the backend's opaque "you must sign
- * in" three layers from the cause.
+ * <p>**The scheme follows the server (RFC 9449, `REQ-INGEST-012`).** A proof accompanies the request
+ * exactly when Keycloak actually bound the token (`token_type: DPoP`), and the `Authorization` header
+ * switches to the `DPoP` scheme with it. Presenting an *unbound* token under that scheme is a hard
+ * `401` — Spring's `JwkThumbprintValidator` demands `cnf.jkt` — so the decision belongs to the
+ * server's answer, never to this client's preference. The gateway accepts both schemes, so a client
+ * rollout needs no flag day.
  *
- * <p>And even where the backend accepted it, the binding would end at the gateway — which is exactly
- * where it would have to hold. Sender-constraining an access token only pays when the party that
- * validates it is the party that consumes it.
+ * <p>**Why this was once the opposite.** While the gateway *relayed* the access token to the backend,
+ * a bound token could not survive the second hop: the proof binds to this client's key and, via
+ * `htu`, to the gateway's URL, so the backend received a DPoP-issued token as a plain bearer and
+ * refused it. That broke every blueprint send on 2026-08-03, surfacing as the backend's opaque "you
+ * must sign in" three layers from the cause. The conclusion drawn then — never bind the access
+ * token — treated the relay as fixed. ADR-0129 removed the relay instead: the gateway validates the
+ * proof itself and calls the backend under its own service account, so the party that validates the
+ * token is now the party that consumes it, which is the only arrangement in which
+ * sender-constraining an access token pays at all.
  *
- * <p>DPoP is still very much in use, one layer up: [DeviceGrantClient] proves possession at the
- * **token endpoint**, so Keycloak binds the **refresh token** — the long-lived credential this app
- * persists to disk. That is the credential worth protecting; an access token lives five minutes in
- * memory.
+ * <p>DPoP therefore protects both credentials now: the access token on this hop, and the **refresh
+ * token** that [DeviceGrantClient] binds at the token endpoint — the long-lived one this app
+ * persists to disk, and the one most worth protecting.
  */
 class BasetoolIngestClient(
     private val baseUrl: String,
@@ -145,9 +149,11 @@ class BasetoolIngestClient(
     ): IngestResponse {
         val uri = URI.create(baseUrl.trimEnd('/') + path)
         // Nothing is retried. A 403 CLIENT_NOT_ALLOWED is permanent by construction (the same binary
-        // is refused every time), and the clock-correction retry that used to live here only ever
-        // made sense for a DPoP proof's `iat` window — a plain bearer has no such window. The clock
-        // is still observed below, because the token-endpoint proofs in DeviceGrantClient need it.
+        // is refused every time), and a clock-correction retry is unnecessary rather than
+        // inapplicable: this request DOES carry a proof whenever the token is bound, and that proof's
+        // `iat` comes from [clock] — the gateway's own time, learned from its `Date` headers — so a
+        // skewed local clock cannot produce a stale proof in the first place. Retrying would only
+        // repeat a rejection whose cause the second attempt shares.
         val response =
             try {
                 post(uri, accessToken, bodyJson, acceptLanguage, dpopKey)
