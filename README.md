@@ -1,20 +1,20 @@
 # Basetool SC Extractor
 
-Eine **Kotlin-Desktop-App** (Compose for Desktop), die Star-Citizen-Daten **lokal**
-ausliest und als JSON für das Basetool exportiert. Das Auslesen bleibt vollständig
-lokal und **automatisch wird nichts hochgeladen** — der einzige Versand ist der
-optionale Knopf **„An Basetool senden"**, den du selbst auslöst: er schickt die
-erzeugte Export-JSON über eine verschlüsselte Verbindung an dein eigenes
-Basetool-Konto (Screenshots verlassen deinen Rechner nie).
-Zwei Workflows unter einem Dach (Top-Tabs: Start · Blueprints · Refinery, Sprache
-über den DE/EN-Schalter in der Titelleiste):
+A **Kotlin desktop app** (Compose for Desktop) that reads Star Citizen data
+**locally** and exports it as JSON for the Basetool. Reading stays entirely local
+and **nothing is uploaded automatically** — the only thing ever sent is the
+optional **"Send to Basetool"** button that you press yourself: it transmits the
+generated export JSON over an encrypted connection to your own Basetool account
+(screenshots never leave your machine).
+Two workflows under one roof (top tabs: Start · Blueprints · Refinery, language via
+the DE/EN switch in the title bar):
 
-- **Blueprints** — liest aus den `Game.log`-Dateien aus, **welche Blueprints ein
-  Spieler erhalten hat** (inspiriert vom „SCMDB Log Watcher", bewusst auf
-  Blueprints fokussiert — Missionsdaten werden nicht ausgewertet).
-- **Refinery** — liest **Raffinerie-Auftragsdaten aus SETUP-Screenshots** per
-  lokalem KI-Modell (Ollama-VLM) aus und erzeugt eine `RefineryExtract`-JSON, die
-  das Basetool beim Anlegen eines Raffinerie-Auftrags vorausfüllt (Epic
+- **Blueprints** — reads the `Game.log` files to extract **which blueprints a
+  player has received** (inspired by the "SCMDB Log Watcher", deliberately focused
+  on blueprints — mission data is not evaluated).
+- **Refinery** — reads **refinery work-order data from SETUP screenshots** via a
+  local AI model (Ollama VLM) and produces a `RefineryExtract` JSON that
+  pre-fills the Basetool's form when you create a refinery work order (epic
   krt-profit/basetool#439).
 
 <table>
@@ -23,257 +23,250 @@ Zwei Workflows unter einem Dach (Top-Tabs: Start · Blueprints · Refinery, Spra
 <img width="88" alt="Made by the Community" src="docs/img/MadeByTheCommunity_White.png#gh-light-mode-only"><img width="88" alt="Made by the Community" src="docs/img/MadeByTheCommunity_Black.png#gh-dark-mode-only">
 </td>
 <td>
-<b>Inoffizielles Star-Citizen-Fan-Tool</b> — nicht mit der Cloud-Imperium-Unternehmensgruppe affiliiert.<br>
+<b>Unofficial Star Citizen fan tool</b> — not affiliated with the Cloud Imperium group of companies.<br>
 Star Citizen®, Roberts Space Industries® and Cloud Imperium® are registered trademarks of Cloud Imperium Rights LLC
 </td>
 </tr>
 </table>
 
-Die App bringt eine **Installationsroutine** (MSI) mit und lässt sich wie jedes
-normale Windows-Programm wieder **deinstallieren** (Einträge in „Apps & Features",
-Startmenü, Desktop-Verknüpfung).
+The app ships with an **installer** (MSI) and can be **uninstalled** like any
+normal Windows program (entries in "Apps & features", Start menu, desktop
+shortcut).
 
-> **Die Ingest-Schnittstelle des Basetools darf ausschließlich von Client-Software
-> genutzt werden, die von [@greluc](https://github.com/greluc) freigegeben ist.**
-> Das Gateway prüft die Client-Kennung, den Scope und das `tool`-Feld der Nutzdaten
-> gegen serverseitige Freigabelisten und weist alles andere mit
-> `403 CLIENT_NOT_ALLOWED` ab (`REQ-INGEST-011` in `docs/specs/desktop-ingest.md`
-> des Basetool-Repos). Wer *das Basetool nutzen* darf, ändert das nicht — jedes
-> Mitglied kann Blueprints und Raffinerie-Aufträge hochladen, aber eben mit dem
-> freigegebenen Extractor. Nutze deshalb eine offizielle Version von der
-> [Releases-Seite](https://github.com/krt-profit/basetool-sc-extractor/releases);
-> ein selbst gebauter Fork mit geänderter Kennung wird abgewiesen. Konkret sind
-> `DeviceGrantClient.CLIENT_ID` und `RefineryPipeline.TOOL` vertragliche
-> Konstanten — eine Änderung ist eine abgestimmte Umstellung auf beiden Seiten.
+> **The Basetool's ingest interface may only be used by client software approved
+> by [@greluc](https://github.com/greluc).** The gateway checks the client id, the
+> scope and the payload's `tool` field against server-side allowlists and rejects
+> everything else with `403 CLIENT_NOT_ALLOWED` (`REQ-INGEST-011` in
+> `docs/specs/desktop-ingest.md` of the Basetool repo). This does not change who
+> may *use the Basetool* — every member can upload blueprints and refinery work
+> orders, just with the approved extractor. So use an official build from the
+> [releases page](https://github.com/krt-profit/basetool-sc-extractor/releases); a
+> self-built fork with a changed id will be rejected. Concretely,
+> `DeviceGrantClient.CLIENT_ID` and `RefineryPipeline.TOOL` are contractual
+> constants — changing them is a coordinated rollout on both sides.
 
 ---
 
-## Für Endnutzer
+## For end users
 
-### Installieren
+### Installing
 
-1. `Basetool SC Extractor-<version>.msi` doppelklicken.
-2. Dem Installations-Assistenten folgen (es lässt sich ein Installationsordner
-   wählen). Es werden **keine Administratorrechte** benötigt — die Installation
-   erfolgt pro Benutzer.
-3. Danach gibt es einen Startmenü-Eintrag unter **Basetool** und eine
-   Desktop-Verknüpfung.
+1. Double-click `Basetool SC Extractor-<version>.msi`.
+2. Follow the installation wizard (you can pick an installation folder). **No
+   administrator rights** are required — the installation is per user.
+3. Afterwards you get a Start-menu entry under **Basetool** and a desktop
+   shortcut.
 
-> Ein separates Java/JRE muss **nicht** installiert werden — die Laufzeit ist im
-> Installer enthalten.
+> A separate Java/JRE is **not** required — the runtime is bundled with the
+> installer.
 
-### Warnt Windows Defender?
+### Does Windows Defender warn you?
 
-Die MSI ist **nicht signiert** — ein Code-Signing-Zertifikat kostet jährlich Geld.
-Für Microsoft Defender ist damit jede neue Version eine unbekannte Datei ohne
-Reputation, und gelegentlich meldet er deshalb einen **Fehlalarm**, meist als
-`Trojan:Script/Wacatac.H!ml`. Das `!ml` steht für „Machine-Learning-Heuristik" —
-also für eine Vermutung, nicht für einen konkreten Fund. Dass die MSI intern ein
-PowerShell-Schnipsel für die Update-Installation mitbringt (`msiexec` starten,
-danach aufräumen), sieht für so einen Klassifikator nach einem Installer-Trojaner
-aus, obwohl es genau das dokumentierte Update-Verhalten ist.
+The MSI is **not signed** — a code-signing certificate costs money every year. To
+Microsoft Defender, every new version is therefore an unknown file with no
+reputation, and it occasionally reports a **false positive**, usually as
+`Trojan:Script/Wacatac.H!ml`. The `!ml` stands for "machine-learning heuristic" —
+a guess, not a concrete finding. The fact that the MSI carries a PowerShell
+snippet for installing updates (start `msiexec`, clean up afterwards) looks like
+an installer trojan to such a classifier, even though it is exactly the documented
+update behaviour.
 
-Zum Gegenprüfen lädt die CI **jedes Release automatisch zu VirusTotal** hoch
-(~70 Virenscanner). In den Release-Notes stehen der Link zum Bericht und der
-SHA-256 der MSI — damit lässt sich nachrechnen, dass die heruntergeladene Datei
-exakt die aus dem Build ist:
+As a counter-check, CI **uploads every release to VirusTotal** automatically
+(~70 antivirus engines; a few skip installers this large, which is why the count
+in the notes is lower). The release notes carry the link to the report and the
+SHA-256 of the MSI — so you can verify that the file you downloaded is exactly the
+one the build produced:
 
 ```powershell
-Get-FileHash <deine-datei>.msi
+Get-FileHash <your-file>.msi
 ```
 
 ### Updates
 
-Beim Start prüft die App still auf
-[GitHub-Releases](https://github.com/krt-profit/basetool-sc-extractor/releases). Gibt
-es eine neuere Version, erscheint auf der Start-Seite ein Banner mit
-**Herunterladen & installieren**:
+On start the app quietly checks
+[GitHub releases](https://github.com/krt-profit/basetool-sc-extractor/releases). If
+a newer version exists, a banner appears on the start screen offering
+**Download & install**:
 
-1. Der MSI-Installer wird in einen temporären Ordner heruntergeladen (nie in den
-   Installationsordner) und per Größe + SHA-256-Checksumme verifiziert.
-2. Der Installer startet, die App beendet sich, damit das Update den
-   Programmordner ersetzen kann.
-3. **Nach der Installation wird die Update-Datei automatisch wieder gelöscht** —
-   auch bei einem abgebrochenen Setup bleibt nichts zurück.
+1. The MSI installer is downloaded into a temporary folder (never into the
+   installation folder) and verified by size + SHA-256 checksum.
+2. The installer starts and the app exits so the update can replace the program
+   folder.
+3. **After the installation the update file is deleted again automatically** —
+   even an aborted setup leaves nothing behind.
 
-**Später** blendet das Angebot für die laufende Sitzung aus. Abgerufen werden
-ausschließlich die Release-Metadaten von GitHub; es werden keine Nutzungsdaten
-gesendet. Ohne Internetverbindung passiert nichts — die Prüfung schlägt still
-fehl und die App startet normal.
+**Later** hides the offer for the current session. Only release metadata is
+fetched from GitHub; no usage data is sent. Without an internet connection
+nothing happens — the check fails silently and the app starts normally.
 
-### Benutzen — Blueprints
+### Using it — Blueprints
 
-1. App starten und auf der Start-Seite **Blueprints** öffnen.
-2. **Star-Citizen-Channel-Ordner** wählen — z. B.
-   `C:\Program Files\Roberts Space Industries\StarCitizen\LIVE`. Ausgelesen werden
-   die `Game.log` in diesem Ordner **und** alle Logs im Unterordner `logbackups`
-   (`Game Build(...).log`). Vorausgefüllt ist der Ordner des letzten erfolgreichen
-   Laufs, sonst der Standard-LIVE-Pfad, sofern er auf deinem Rechner existiert.
-   Wählst du einen **Archivordner** — einen Ordner, in dem lose `*.log`-Dateien
-   liegen, ohne `Game.log` und ohne `logbackups` —, werden diese gelesen. Das ist
-   für weggesicherte Logs gedacht; Star Citizen selbst räumt seine `logbackups`
-   irgendwann auf.
-3. **Ausgabe-JSON (Ziel)** wählen — wohin die JSON-Datei geschrieben werden soll.
-4. Auf **Blueprints extrahieren** klicken.
+1. Start the app and open **Blueprints** on the start screen.
+2. Pick the **Star Citizen channel folder** — e.g.
+   `C:\Program Files\Roberts Space Industries\StarCitizen\LIVE`. Read are the
+   `Game.log` in that folder **and** every log in the `logbackups` subfolder
+   (`Game Build(...).log`). Pre-filled is the folder of the last successful run,
+   otherwise the default LIVE path if it exists on your machine. If you pick an
+   **archive folder** — a folder holding loose `*.log` files, without `Game.log`
+   and without `logbackups` — those are read instead. That is meant for logs you
+   put aside; Star Citizen itself eventually cleans up its `logbackups`.
+3. Pick the **output JSON (target)** — where the JSON file should be written.
+4. Click **Extract blueprints**.
 
-Nach dem Lauf zeigt die App eine Zusammenfassung (erkannte Spieler, Blueprints
-nach Kategorie, die zuletzt erhaltenen Blueprints) und schreibt die vollständige
-Liste in die gewählte JSON-Datei.
+After the run the app shows a summary (detected players, blueprints by category,
+the most recently received blueprints) and writes the full list to the chosen JSON
+file.
 
-### Benutzen — Refinery (Screenshot-Extraktion)
+### Using it — Refinery (screenshot extraction)
 
-Der Refinery-Workflow liest die **SETUP-Ansicht** eines Raffinerie-Auftrags
-(REFINEMENT CENTER) aus Screenshots aus — Materialien, Qualität, Menge, Ausbeute,
-Refine-Schalter, Standort, Methode, Kosten und Dauer — und exportiert eine
-`RefineryExtract.json`, die im Basetool unter *Refinery → Aufträge → Auftrag
-importieren* das Anlege-Formular vorausfüllt. Zusätzlich wird pro Screenshot die
-**Aufnahmezeit** mit exportiert (aus dem Zeitstempel im Dateinamen, z. B.
-`Screenshot 2026-06-01 213823.png` oder `ScreenShot-2026-06-06_15-50-53-C28.jpg`,
-sonst aus dem Datei-Änderungsdatum) — das Basetool übernimmt die Aufnahmezeit des
-letzten Screenshots als **Startzeit** des Auftrags.
+The refinery workflow reads the **SETUP view** of a refinery work order
+(REFINEMENT CENTER) from screenshots — materials, quality, amount, yield, refine
+toggles, location, method, cost and duration — and exports a
+`RefineryExtract.json` that pre-fills the creation form in the Basetool under
+*Refinery → Work orders → Import work order*. In addition, each screenshot's
+**capture time** is exported (from the timestamp in the file name, e.g.
+`Screenshot 2026-06-01 213823.png` or `ScreenShot-2026-06-06_15-50-53-C28.jpg`,
+otherwise from the file's modification date) — the Basetool takes the capture time
+of the last screenshot as the work order's **start time**.
 
-**Voraussetzung: Ollama (lokales KI-Modell).** Die Bilder werden zu **keinem**
-Zeitpunkt hochgeladen — die Auswertung läuft komplett lokal über
-[Ollama](https://ollama.com):
+**Prerequisite: Ollama (local AI model).** The images are **never** uploaded — the
+evaluation runs entirely locally via [Ollama](https://ollama.com):
 
-1. Ollama von ollama.com installieren und starten (`ollama serve`,
-   Standard-Port 11434).
-2. Das Modell laden: `ollama pull qwen3-vl:8b-instruct` — oder einfach die
-   App machen lassen: Die **Vorprüfung** erkennt ein fehlendes Modell und lädt es
-   auf Klick mit Fortschrittsanzeige herunter.
+1. Install Ollama from ollama.com and start it (`ollama serve`, default port
+   11434).
+2. Pull the model: `ollama pull qwen3-vl:8b-instruct` — or simply let the app do
+   it: the **preflight** detects a missing model and downloads it on click, with a
+   progress indicator.
 
-**Hardware-Stufen** (von der App automatisch erkannt und vorgewählt):
+**Hardware tiers** (detected and pre-selected automatically by the app):
 
-| Stufe | GPU-VRAM | Modell | Dauer pro Bild (gemessen) |
+| Tier | GPU VRAM | Model | Time per image (measured) |
 |---|---|---|---|
-| Empfohlen | ≥ 12 GB | `qwen3-vl:8b-instruct` | ≈ 4–5 s |
+| Recommended | ≥ 12 GB | `qwen3-vl:8b-instruct` | ≈ 4–5 s |
 | Minimum | ≥ 8 GB | `qwen3-vl:4b-instruct` | ≈ 4 s |
-| Darunter | — | `qwen3-vl:4b-instruct`, CPU-Modus | ≈ 30 s (funktioniert, langsam) |
+| Below that | — | `qwen3-vl:4b-instruct`, CPU mode | ≈ 30 s (works, slow) |
 
-**Wichtig für gute Ergebnisse:**
+**Important for good results:**
 
-- **Star Citizen vorher schließen.** Das KI-Modell und das Spiel teilen sich
-  GPU und VRAM — bei laufendem SC drohen Ruckler bis hin zum Absturz und sehr
-  langsame Extraktion. Die Vorprüfung erkennt ein laufendes
-  `StarCitizen.exe` und warnt (fortfahren ist möglich, aber bewusst zu
-  bestätigen).
-- **Erst im Spiel „GET QUOTE" drücken, dann den Screenshot aufnehmen.** Vor der
-  Quote zeigt das Panel keine Ausbeute, Kosten und Dauer (`--`) — solche
-  Aufnahmen werden erkannt und als unvollständig markiert.
-- **1 Ordner = 1 Auftrag.** Alle Screenshots desselben Auftrags (auch gescrollte
-  Teilansichten der Materialliste) in einen Ordner legen; die App fügt die
-  Zeilen automatisch zusammen. Auflösung 1080p bis 8K (auch Ultrawide) wird
-  unterstützt; alternativ kann ein bereits **manuell zugeschnittenes**
-  Panel-Bild verwendet werden (wird als „vorgecroppt" erkannt).
-- **Bilder einfügen ohne Ordner:** Im Schritt *Bilder laden* lassen sich
-  Screenshots auch direkt per **Strg+V** aus der Zwischenablage einfügen
-  (z. B. aus dem Windows Snipping Tool) oder per **Drag & Drop** in das
-  Fenster ziehen. Ist ein Screenshot-Ordner gewählt, werden sie dort
-  gespeichert; ohne gewählten Ordner landen sie in einem temporären Ordner,
-  der beim Beenden der App automatisch gelöscht wird.
-- **Bilder gezielt abwählen:** Jede Kachel hat eine Checkbox (auch ein Klick
-  auf das Vorschaubild schaltet um) — nur angehakte Bilder gehen in die
-  Extraktion. Abgewählte Bilder bleiben im Raster sichtbar, werden aber
-  ausgegraut dargestellt und übersprungen.
-- **Ordner wird laufend überwacht:** Solange der Schritt *Bilder laden* offen
-  ist, prüft die App den gewählten Ordner einmal pro Sekunde auf Änderungen —
-  nachträglich abgelegte Screenshots erscheinen automatisch im Raster, aus dem
-  Ordner gelöschte verschwinden. Gesetzte bzw. entfernte Haken bleiben dabei
-  erhalten, und per ✕ entfernte Bilder werden nicht erneut hinzugefügt.
-- Stehen mehrere Auftrags-Panels nebeneinander, wird das **linkeste** (= der
-  neueste Auftrag) ausgelesen.
+- **Close Star Citizen first.** The AI model and the game share GPU and VRAM —
+  with SC running you risk stutter up to a crash, and very slow extraction. The
+  preflight detects a running `StarCitizen.exe` and warns (you can continue, but
+  have to confirm deliberately).
+- **Press "GET QUOTE" in the game first, then take the screenshot.** Before the
+  quote the panel shows no yield, cost and duration (`--`) — such captures are
+  detected and marked as incomplete.
+- **1 folder = 1 work order.** Put all screenshots of the same work order
+  (including scrolled partial views of the material list) into one folder; the app
+  stitches the rows together automatically. Resolutions from 1080p to 8K
+  (including ultrawide) are supported; alternatively you can use an already
+  **manually cropped** panel image (it is detected as "pre-cropped").
+- **Pasting images without a folder:** in the *Load images* step you can paste
+  screenshots straight from the clipboard with **Ctrl+V** (e.g. from the Windows
+  Snipping Tool) or **drag & drop** them into the window. If a screenshot folder
+  is selected they are saved there; without one they go into a temporary folder
+  that is deleted automatically when the app exits.
+- **Deselecting individual images:** every tile has a checkbox (clicking the
+  thumbnail toggles it too) — only ticked images go into the extraction.
+  Deselected images stay visible in the grid but are greyed out and skipped.
+- **The folder is watched continuously:** while the *Load images* step is open the
+  app checks the selected folder for changes once per second — screenshots added
+  later appear in the grid automatically, ones deleted from the folder disappear.
+  Ticks you set or cleared are preserved, and images removed via ✕ are not added
+  back.
+- If several work-order panels sit side by side, the **leftmost** one (= the
+  newest work order) is read.
 
-Die Extraktion verarbeitet **ein Bild nach dem anderen** (Drosselung), zeigt
-pro Bild die Stufen *Locate → Normalize → Read* und endet in einem
-Review-Schritt: Alle gelesenen Werte mit abgeleiteter Konfidenz prüfen, dann
-**Als JSON exportieren**. Gespeichert wird erst beim Import im Basetool.
+The extraction processes **one image at a time** (throttling), shows the stages
+*Locate → Normalize → Read* per image and ends in a review step: check every value
+that was read together with its derived confidence, then **Export as JSON**. It is
+only stored once you import it in the Basetool.
 
-### Deinstallieren
+### Uninstalling
 
-Wie jedes Windows-Programm:
-**Einstellungen → Apps → Installierte Apps → „Basetool SC Extractor" →
-Deinstallieren** (oder klassisch über *Systemsteuerung → Programme und Features*).
+Like any Windows program:
+**Settings → Apps → Installed apps → "Basetool SC Extractor" → Uninstall** (or the
+classic route via *Control Panel → Programs and Features*).
 
-**Restlose Entfernung — verifiziert.** Ein Install→Deinstall-Testzyklus bestätigt,
-dass die Deinstallation **alles** entfernt:
+**Residue-free removal — verified.** An install→uninstall test cycle confirms that
+uninstalling removes **everything**:
 
-| Artefakt | nach Deinstallation |
+| Artefact | after uninstall |
 |---|---|
-| Programmordner `%LOCALAPPDATA%\Basetool SC Extractor\` (gebündelte JRE, ~515 Dateien) | entfernt |
-| Startmenü-Gruppe „Basetool" inkl. Verknüpfung | entfernt |
-| Desktop-Verknüpfung | entfernt |
-| „Apps & Features"-/Registry-Eintrag | entfernt |
+| Program folder `%LOCALAPPDATA%\Basetool SC Extractor\` (bundled JRE, ~515 files) | removed |
+| Start-menu group "Basetool" including the shortcut | removed |
+| Desktop shortcut | removed |
+| "Apps & features" / registry entry | removed |
 
-Das funktioniert **restlos**, weil die App bewusst **nichts** in ihren eigenen
-Installationsordner schreibt (keine `config.json`, keine `logs/` — anders als das
-Python-Vorbild). Solche zur Laufzeit erzeugten Fremddateien sind der übliche Grund,
-warum sonst ein leerer Programmordner zurückbleibt.
+This works **completely** because the app deliberately writes **nothing** into its
+own installation folder (no `config.json`, no `logs/` — unlike the Python original
+that inspired it). Such files created at runtime are the usual reason an empty
+program folder is left behind otherwise.
 
-> Deine **exportierten JSON-Dateien** liegen am selbst gewählten Ort (Standard:
-> `Dokumente\blueprints.json`) und werden bei der Deinstallation **absichtlich nicht**
-> gelöscht — das sind deine Daten, kein Programm-Rest.
+> Your **exported JSON files** live wherever you chose (default:
+> `Documents\blueprints.json`) and are **deliberately not** deleted on uninstall —
+> that is your data, not a program leftover.
 
-**„An Basetool senden" und die gemerkte Anmeldung.** Sobald du **„An Basetool senden"**
-nutzt, legt die App zwei nutzerbezogene Dinge **außerhalb** des Programmordners ab — der
-Programmordner bleibt also weiterhin restlos entfernbar:
+**"Send to Basetool" and the remembered sign-in.** As soon as you use **"Send to
+Basetool"**, the app stores two user-specific things **outside** the program
+folder — so the program folder itself stays completely removable:
 
-- eine **`config.json`** unter `%APPDATA%\Basetool SC Extractor\` (kein Geheimnis: nur die
-  Einwilligung zum Senden und die Ziel-URL). Roaming-Daten, kein Programm-Rest.
-- ein **Auffrischungs-Token** (Refresh Token) im **Windows-Anmeldeinformations-Manager**
-  (DPAPI-geschützt, pro Benutzer) — damit du beim nächsten Senden nicht erneut bestätigen
-  musst. Im selben Eintrag liegt ein **privater Schlüssel** (EC P-256), an den das Token
-  gebunden ist (DPoP, RFC 9449): Eine Kopie des Tokens allein ist damit **wertlos**, weil
-  jede Anfrage zusätzlich mit diesem Schlüssel signiert werden muss — genau deshalb stehen
-  beide zusammen in einem Datensatz. Dieser Eintrag wird bei der **Deinstallation nicht**
-  entfernt; lösche ihn über **Start → „Vom Basetool trennen"** (das zieht das Token
-  serverseitig zurück und löscht beides lokal) oder im
-  Windows-Anmeldeinformations-Manager unter dem Eintrag „Basetool SC Extractor".
+- a **`config.json`** under `%APPDATA%\Basetool SC Extractor\` (no secret: only
+  your consent to send and the target URL). Roaming data, not a program leftover.
+- a **refresh token** in the **Windows Credential Manager** (DPAPI-protected, per
+  user) — so you do not have to confirm again on the next send. The same record
+  holds a **private key** (EC P-256) the token is bound to (DPoP, RFC 9449): a copy
+  of the token alone is therefore **worthless**, because every request must
+  additionally be signed with that key — which is exactly why the two live
+  together in one record. This entry is **not** removed on **uninstall**; delete it
+  via **Start → "Disconnect from Basetool"** (which revokes the token server-side
+  and deletes both locally) or in the Windows Credential Manager under the entry
+  "Basetool SC Extractor".
 
 ---
 
-## Die JSON-Ausgabe
+## The JSON output
 
 ```jsonc
 {
   "schemaVersion": 1,
   "tool": "Basetool Blueprint Extractor",
   "toolVersion": "1.0.0",
-  "generatedAt": "2026-05-30T21:39:45Z",   // UTC, wann der Export erzeugt wurde
-  "sourceFolder": "…\\StarCitizen\\LIVE",   // der Channel-Ordner
+  "generatedAt": "2026-05-30T21:39:45Z",   // UTC, when the export was created
+  "sourceFolder": "…\\StarCitizen\\LIVE",   // the channel folder
   "logFilesScanned": 424,                    // Game.log + logbackups\*.log
-  "blueprintCount": 179,                     // Gesamtzahl erhaltener Blueprints
+  "blueprintCount": 179,                     // total blueprints received
   "players": [
     {
-      "handle": "greluc",                    // Spielername (aus Login-Zeilen)
+      "handle": "greluc",                    // player name (from login lines)
       "blueprintCount": 179
     }
   ],
   "blueprints": [
     {
-      "productName": "Yubarev \"Mirage\" Pistol", // exakter Item-Name (inkl. Anführungszeichen)
-      "category": "Weapon",                       // abgeleitete Kategorie (s. u.)
-      "receivedAt": "2026-03-26T16:49:31.050Z",   // Zeitpunkt des Erhalts (UTC)
-      "player": "greluc",                         // Empfänger (aus der Quelldatei)
-      "notificationId": 19,                       // In-Game-Notification-Index
-      "queueSize": 2,                             // gemeldete Notification-Queue-Größe
-      "gameBuild": "11518367",                    // SC-Build-Nr. (aus dem Dateinamen)
+      "productName": "Yubarev \"Mirage\" Pistol", // exact item name (quotes included)
+      "category": "Weapon",                       // derived category (see below)
+      "receivedAt": "2026-03-26T16:49:31.050Z",   // when it was received (UTC)
+      "player": "greluc",                         // recipient (from the source file)
+      "notificationId": 19,                       // in-game notification index
+      "queueSize": 2,                             // reported notification queue size
+      "gameBuild": "11518367",                    // SC build no. (from the file name)
       "sourceFile": "Game Build(11518367) 26 Mar 26 (17 24 58).log"
     }
-    // … chronologisch sortiert …
+    // … sorted chronologically …
   ]
 }
 ```
 
-**Kategorien** (`category`) werden heuristisch aus dem Namen abgeleitet — der
-Log selbst nennt keine Kategorie:
-`MiningTool` · `Ammo` (Magazine/Batterien) · `Armor` (Helmet/Core/Arms/Legs/…) ·
+**Categories** (`category`) are derived heuristically from the name — the log
+itself names no category:
+`MiningTool` · `Ammo` (magazines/batteries) · `Armor` (Helmet/Core/Arms/Legs/…) ·
 `Weapon` (Pistol/Rifle/Shotgun/…) · `Other`.
 
 ---
 
-## Wie das Auslesen funktioniert
+## How the extraction works
 
-Star Citizen schreibt beim Erhalt eines Blueprints eine Notification-Zeile:
+When you receive a blueprint, Star Citizen writes a notification line:
 
 ```
 <2026-03-26T16:49:31.050Z> [Notice] <SHUDEvent_OnNotification> Added notification
@@ -281,234 +274,232 @@ Star Citizen schreibt beim Erhalt eines Blueprints eine Notification-Zeile:
   MissionId: [00000000-0000-0000-0000-000000000000], ObjectiveId: [] [...]
 ```
 
-Der Parser ([`BlueprintParser.kt`](src/main/kotlin/com/basetool/bpextractor/BlueprintParser.kt))
-behandelt die realen Eigenheiten dieser Zeilen:
+The parser ([`BlueprintParser.kt`](src/main/kotlin/com/basetool/bpextractor/BlueprintParser.kt))
+handles the real-world quirks of these lines:
 
-- **Anker auf `Added notification`** — jede Blueprint-Meldung erscheint mehrfach
-  im Log (die ursprüngliche Notification, eine Queue-Echo-Zeile und mehrere
-  `UpdateNotificationItem`-Folgezeilen mit `Next`/`StartFade`/`Remove`). Nur die
-  `Added notification`-Zeile wird gezählt, damit jeder Blueprint **genau einmal**
-  gezählt wird (sonst ~6-fach).
-- **Spielsprache — wird aus deiner Installation gelesen.** Das Etikett vor dem
-  Namen (`Received Blueprint`) stammt aus den Lokalisierungstabellen des Spiels und
-  ist übersetzt, wenn du einen Sprachpatch nutzt; die Zeile drumherum bleibt
-  englisch. Statt Übersetzungen zu raten, liest die App den Schlüssel
-  `crafting_hud_notification_received_blueprint` direkt aus den
-  `data\Localization\*\global.ini` deines gewählten Ordners — also genau den Text,
-  den dein Spiel schreiben wird. Ändert sich die Formulierung, greift das beim
-  nächsten Lauf, ohne neue Version. Gelesen werden **alle** installierten Sprachen,
-  nicht nur die aktive: ein Scan reicht Monate zurück. Ohne lesbare `global.ini`
-  (unverändertes englisches Spiel, oder ein Archivordner) greifen die eingebauten
-  Texte für Englisch, Deutsch und Schweizerdeutsch.
-- **Namen mit Anführungszeichen** (`Yubarev "Mirage" Pistol`), **Klammern**
-  (`Yubarev Pistol Battery (10 cap)`), **Slashes** (`Sth/2/C Cirrus`) und
-  **Bindestrichen** (`ADP-mk4 Core Woodland`) werden korrekt erfasst. Der Name
-  endet stabil am `: " [<id>]`-Trenner.
-- **Spielername** kommt aus den Login-Zeilen derselben Datei
-  (`User Login Success - Handle[…]` bzw. die Charakter-Status-Zeile mit `geid`
-  und `accountId`) — die `MissionId` auf der Blueprint-Zeile ist immer `0000…`
-  und daher nutzlos.
-- **Build-Nummer** stammt aus dem Dateinamen (`Game Build(11518367) …`).
+- **Anchored on `Added notification`** — every blueprint message appears several
+  times in the log (the original notification, a queue echo line and several
+  `UpdateNotificationItem` follow-ups with `Next`/`StartFade`/`Remove`). Only the
+  `Added notification` line is counted, so each blueprint is counted **exactly
+  once** (otherwise ~6×).
+- **Game language — read from your installation.** The label in front of the name
+  (`Received Blueprint`) comes from the game's localisation tables and is
+  translated if you use a language patch; the line around it stays English.
+  Instead of guessing translations, the app reads the key
+  `crafting_hud_notification_received_blueprint` straight out of the
+  `data\Localization\*\global.ini` of the folder you picked — that is, exactly the
+  text your game is going to write. If the wording changes, that takes effect on
+  the next run without a new release. **All** installed languages are read, not
+  just the active one: a scan reaches months back. Without a readable `global.ini`
+  (an unmodified English game, or an archive folder) the built-in texts for
+  English, German and Swiss German apply.
+- **Names with quotes** (`Yubarev "Mirage" Pistol`), **parentheses**
+  (`Yubarev Pistol Battery (10 cap)`), **slashes** (`Sth/2/C Cirrus`) and
+  **hyphens** (`ADP-mk4 Core Woodland`) are captured correctly. The name ends
+  reliably at the `: " [<id>]` separator.
+- **The player name** comes from the login lines of the same file
+  (`User Login Success - Handle[…]` or the character-status line with `geid` and
+  `accountId`) — the `MissionId` on the blueprint line is always `0000…` and
+  therefore useless.
+- **The build number** comes from the file name (`Game Build(11518367) …`).
 
-Große Logs (teils > 30 MB) werden **zeilenweise gestreamt**, nie komplett in den
-Speicher geladen.
+Large logs (sometimes > 30 MB) are **streamed line by line**, never loaded into
+memory as a whole.
 
 ---
 
-## Selbst bauen (für Entwickler)
+## Building it yourself (for developers)
 
-**Voraussetzung:** JDK 25 (z. B. Azul Zulu). Gradle wird über den mitgelieferten
-Wrapper bereitgestellt.
+**Prerequisite:** JDK 25 (e.g. Azul Zulu). Gradle comes via the bundled wrapper.
 
 ```powershell
-# Tests ausführen
+# run the tests
 .\gradlew.bat test
 
-# App starten
+# start the app
 .\gradlew.bat run
 
-# Windows-Installer (MSI) bauen — IMMER über dieses Skript (s. WiX-Hinweis unten)
+# build the Windows installer (MSI) — ALWAYS via this script (see the WiX note below)
 .\package-msi.ps1
 ```
 
-Die fertige MSI liegt danach unter `dist\Basetool SC Extractor-<version>.msi`
-(das Skript kopiert sie dorthin; das Gradle-Original liegt unter
+The finished MSI then sits at `dist\Basetool SC Extractor-<version>.msi` (the
+script copies it there; the Gradle original is under
 `build\compose\binaries\main\msi\`).
 
-### Hinweis zu WiX (MSI-Erzeugung)
+### A note on WiX (MSI creation)
 
-`packageMsi` nutzt `jpackage`, das seit JDK 24 mit modernem WiX (**4+**) arbeitet
-([JDK-8319457](https://bugs.openjdk.org/browse/JDK-8319457)): Es ruft das erste
-`wix.exe` im `PATH` auf und braucht die Extensions `WixToolset.Util.wixext` und
-`WixToolset.UI.wixext` im globalen Extension-Cache. Dabei gibt es zwei
-Stolperfallen:
+`packageMsi` uses `jpackage`, which since JDK 24 works with modern WiX (**4+**)
+([JDK-8319457](https://bugs.openjdk.org/browse/JDK-8319457)): it invokes the first
+`wix.exe` on the `PATH` and needs the extensions `WixToolset.Util.wixext` and
+`WixToolset.UI.wixext` in the global extension cache. There are two pitfalls:
 
-- **Gemischte WiX-Versionen:** jpackage übergibt die Extensions *unversioniert*,
-  und `wix.exe` löst sie zur *höchsten* Version im Cache auf. Liegen dort
-  Extensions eines neueren Majors (z. B. v7 neben einem v6-Toolset), bricht ein
-  älteres `wix.exe` mit **Fehler WIX0144 / Exit-Code 144** ab — lange fälschlich
-  für einen jpackage-Bug gehalten
-  ([JDK-8356592](https://bugs.openjdk.org/browse/JDK-8356592)).
-- **OSMF-EULA:** WiX **v7+** verweigert jeden Befehl, bis einmalig pro
-  Benutzerkonto `wix eula accept wix7` ausgeführt wurde (Open Source Maintenance
-  Fee; zahlungspflichtig erst ab ca. 10.000 US$ Jahresumsatz — Details:
+- **Mixed WiX versions:** jpackage passes the extensions *unversioned*, and
+  `wix.exe` resolves them to the *highest* version in the cache. If extensions of
+  a newer major are cached there (e.g. v7 next to a v6 toolset), an older
+  `wix.exe` aborts with **error WIX0144 / exit code 144** — long misread as a
+  jpackage bug ([JDK-8356592](https://bugs.openjdk.org/browse/JDK-8356592)).
+- **OSMF EULA:** WiX **v7+** refuses every command until `wix eula accept wix7`
+  has been run once per user account (Open Source Maintenance Fee; only payable
+  above roughly US$ 10,000 annual revenue — details:
   <https://docs.firegiant.com/wix/osmf/>).
 
-Deshalb die MSI **immer** über das mitgelieferte Skript bauen:
+That is why the MSI must **always** be built via the bundled script:
 
 ```powershell
 .\package-msi.ps1
 ```
 
-Der Build ist auf **WiX 7** gepinnt: Das Skript nimmt das neueste installierte
-WiX 7.x und stellt es nur für diesen Build-Prozess an den Anfang des `PATH`,
-prüft EULA und Extensions vorab mit klaren Fehlermeldungen (die EULA wird nur auf
-CI automatisch akzeptiert) und bootstrappt auf Maschinen ohne WiX 7 ein lokales
-Exemplar unter `tools\wix` (dotnet tool, Version 7.0.0). Am System wird **nichts**
-geändert; die fertige MSI landet in `dist\`.
+The build is pinned to **WiX 7**: the script takes the newest installed WiX 7.x
+and puts it at the front of the `PATH` for this build process only, preflights the
+EULA and the extensions with clear error messages (the EULA is accepted
+automatically on CI only) and, on machines without WiX 7, bootstraps a local copy
+under `tools\wix` (dotnet tool, version 7.0.0). **Nothing** on the system is
+changed; the finished MSI lands in `dist\`.
 
-### Installer-Verhalten anpassen
+### Adjusting installer behaviour
 
-In [`build.gradle.kts`](build.gradle.kts) unter `windows { … }`:
+In [`build.gradle.kts`](build.gradle.kts) under `windows { … }`:
 
-| Option | Wirkung |
+| Option | Effect |
 |---|---|
-| `perUserInstall = true` | Installation ohne Admin, pro Benutzer in „Apps & Features" |
-| `dirChooser = true` | Schritt zur Auswahl des Installationsordners |
-| `menu = true` / `menuGroup` | Startmenü-Eintrag |
-| `shortcut = true` | Desktop-Verknüpfung |
-| `upgradeUuid` | stabile ID, damit neue Versionen die alte ersetzen |
-| `iconFile` | eigenes Icon (`src/main/resources/app.ico` ablegen) |
+| `perUserInstall = true` | installation without admin rights, per user in "Apps & features" |
+| `dirChooser = true` | a step for choosing the installation folder |
+| `menu = true` / `menuGroup` | Start-menu entry |
+| `shortcut = true` | desktop shortcut |
+| `upgradeUuid` | stable id so new versions replace the old one |
+| `iconFile` | custom icon (place it at `src/main/resources/app.ico`) |
 
-> Die MSI ist ~60 MB. Gebündelt wird eine **schlanke** JDK-25-Laufzeit — nur die
-> wirklich benötigten Module: `modules("java.instrument", "jdk.unsupported",
-> "java.net.http", "jdk.management")` (HTTP-Client für Ollama, Speicher-Probe für
-> die Hardware-Vorprüfung) plus die vom Compose-Plugin automatisch erkannten
-> (`java.desktop` etc.), ermittelt via `gradlew suggestRuntimeModules`. Der Nutzer
-> braucht trotzdem kein eigenes Java.
-> (`jvmArgs += "--enable-native-access=ALL-UNNAMED"` unterdrückt die JDK-25-
-> „native access"-Warnungen, die Skikos `System.load()` sonst auf stderr schreibt.)
+> The MSI is ~108 MB. What gets bundled is a **slim** JDK 25 runtime — only the
+> modules actually needed: `modules("java.instrument", "jdk.unsupported",
+> "java.net.http", "jdk.management")` (HTTP client for Ollama, memory probe for the
+> hardware preflight) plus the ones the Compose plugin detects automatically
+> (`java.desktop` etc.), determined via `gradlew suggestRuntimeModules`. The user
+> still needs no Java of their own.
+> (`jvmArgs += "--enable-native-access=ALL-UNNAMED"` silences the JDK 25 "native
+> access" warnings that Skiko's `System.load()` would otherwise write to stderr.)
 
 ---
 
-## Projektstruktur
+## Project structure
 
 ```
 basetool-bp-extractor/
-├── build.gradle.kts                  # Build + Compose-/MSI-Konfiguration
+├── build.gradle.kts                  # build + Compose/MSI configuration
 ├── settings.gradle.kts
 ├── gradle.properties
-├── gradlew(.bat)                     # Gradle-Wrapper (9.5.1)
-├── package-msi.ps1                   # MSI-Build (WiX-Auswahl, EULA-/Extension-Preflight)
+├── gradlew(.bat)                     # Gradle wrapper (9.7.0)
+├── package-msi.ps1                   # MSI build (WiX selection, EULA/extension preflight)
 ├── src/main/kotlin/com/basetool/bpextractor/
-│   ├── Main.kt                       # Compose-GUI (Tabs/Shell), Einstiegspunkt
-│   ├── BlueprintParser.kt            # Blueprint-Zeilen-Parsing (Kern)
-│   ├── BlueprintExtractor.kt         # Ordner-Scan, Aggregation, JSON
-│   ├── Legal.kt                      # Fankit-Pflichttexte (Markenhinweis, verbatim)
-│   ├── refinery/                     # Refinery-Pipeline (pur, ohne UI)
-│   │   ├── Locate.kt                 #   Panel-Detektion + Normalisierung (CV)
-│   │   ├── PanelReader.kt / PanelRead.kt  # VLM-Read + Markdown-Reformat
-│   │   ├── Stitcher.kt / Validation.kt    # Zeilen-Stitching + Konfidenz-Politik
-│   │   ├── RefineryPipeline.kt       #   Orchestrierung + JSON-Export
-│   │   ├── Preflight.kt              #   Hardware-Probes + Stufen-Entscheidung
-│   │   ├── OllamaClient.kt           #   Ollama-HTTP-API (tags/ps/chat/pull)
-│   │   └── model/RefineryExtract.kt  #   eingefrorener JSON-Contract (v1)
-│   ├── ui/Theme.kt                   # KRT-Theme (Farben, Fonts, Typo, Shapes)
-│   ├── ui/KrtComponents.kt           # HUD-Box, CTA-/Ghost-Buttons, Checkbox …
-│   ├── ui/Navigation.kt              # CommandStrip (Tabs + Inline-Stepper), DE/EN-Toggle
-│   ├── ui/StepScaffold.kt            # Schritt-Gerüst: Kopf · Scroll-Body · Footer-CTA
-│   ├── ui/StartScreen.kt             # Launcher (Workflow-Karten)
-│   ├── ui/RefineryScreen.kt          # Refinery-Workflow-Host (5 Schritte)
-│   ├── ui/refinery/                  # die fünf Refinery-Screens, UI-State (Bild-Auswahl),
-│   │                                 #   ImageIntake (Strg+V-/Drag&Drop-Aufnahme)
-│   ├── ui/FilePicker.kt              # KRT-Datei-/Ordner-Picker (keine nativen Dialoge)
-│   ├── ui/i18n/Strings.kt            # DE/EN-Stringkatalog
-│   ├── ui/WindowChrome.kt            # undekorierte Titelleiste + Fenster-Buttons
-│   └── model/Models.kt               # Blueprint-JSON-Datenmodelle
-├── src/main/resources/               # Fonts (Lato), app.ico, Prompt v1, OCR-Modelle (ocr/)
-├── src/main/composeResources/drawable/ # honeycomb_bg.svg, basetool_extractor_icon.png, Made-by-the-Community-Logo
-├── src/test/kotlin/…                 # Unit-Tests
-├── src/test/resources/sample.log     # Test-Fixture (Edge-Cases)
-├── docs/refinery-extractor/          # Phase-0-Findings (Modell-Bake-off etc.)
-├── docs/img/                         # README-Bilder (Made-by-the-Community-Logo)
-└── game-log/                         # private Beispiel-Logs (nicht im Repo)
+│   ├── Main.kt                       # Compose GUI (tabs/shell), entry point
+│   ├── BlueprintParser.kt            # blueprint line parsing (core)
+│   ├── BlueprintExtractor.kt         # folder scan, aggregation, JSON
+│   ├── Legal.kt                      # mandatory Fankit texts (trademark notice, verbatim)
+│   ├── refinery/                     # refinery pipeline (pure, no UI)
+│   │   ├── Locate.kt                 #   panel detection + normalisation (CV)
+│   │   ├── PanelReader.kt / PanelRead.kt  # VLM read + markdown reformat
+│   │   ├── Stitcher.kt / Validation.kt    # row stitching + confidence policy
+│   │   ├── RefineryPipeline.kt       #   orchestration + JSON export
+│   │   ├── Preflight.kt              #   hardware probes + tier decision
+│   │   ├── OllamaClient.kt           #   Ollama HTTP API (tags/ps/chat/pull)
+│   │   └── model/RefineryExtract.kt  #   frozen JSON contract (v1)
+│   ├── ui/Theme.kt                   # KRT theme (colours, fonts, type, shapes)
+│   ├── ui/KrtComponents.kt           # HUD box, CTA/ghost buttons, checkbox …
+│   ├── ui/Navigation.kt              # CommandStrip (tabs + inline stepper), DE/EN toggle
+│   ├── ui/StepScaffold.kt            # step frame: head · scroll body · footer CTA
+│   ├── ui/StartScreen.kt             # launcher (workflow cards)
+│   ├── ui/RefineryScreen.kt          # refinery workflow host (5 steps)
+│   ├── ui/refinery/                  # the five refinery screens, UI state (image selection),
+│   │                                 #   ImageIntake (Ctrl+V / drag & drop capture)
+│   ├── ui/FilePicker.kt              # KRT file/folder picker (no native dialogs)
+│   ├── ui/i18n/Strings.kt            # DE/EN string catalogue
+│   ├── ui/WindowChrome.kt            # undecorated title bar + window buttons
+│   └── model/Models.kt               # blueprint JSON data models
+├── src/main/resources/               # fonts (Lato), app.ico, prompt v1, OCR models (ocr/)
+├── src/main/composeResources/drawable/ # honeycomb_bg.svg, basetool_extractor_icon.png, Made-by-the-Community logo
+├── src/test/kotlin/…                 # unit tests
+├── src/test/resources/sample.log     # test fixture (edge cases)
+├── docs/refinery-extractor/          # phase 0 findings (model bake-off etc.)
+├── docs/img/                         # README images (Made-by-the-Community logo)
+└── game-log/                         # private sample logs (not in the repo)
 ```
 
 ## Design
 
-Die GUI folgt dem **„Das Kartell" / KRT-Design-System** (Quelle: Claude-Skill
-`das-kartell-design`): dunkles Sci-Fi-„HUD", Hausorange `#E77E23` auf Schwarz,
-**Lato-only-Typografie** (Headlines: Lato **Bold** UPPERCASE mit 0.05em-Tracking,
-Body: Lato Light — keine Audiowide/Ethnocentric mehr), durchweg scharfe
-Ecken mit diagonalen HUD-Eckwinkeln, Orange-Bloom statt weicher Schatten. Umgesetzt
-als Compose-Material3-Theme (`ui/Theme.kt`, `ui/KrtComponents.kt`) mit strenger
-Action-Hierarchie: genau **eine** gefüllte Orange-CTA pro Kontext („Blueprints
-extrahieren"), Sekundäraktionen als Ghost-Buttons, Labels neutral-grau.
+The GUI follows the **"Das Kartell" / KRT design system** (source: the
+`das-kartell-design` Claude skill): a dark sci-fi "HUD", house orange `#E77E23` on
+black, **Lato-only typography** (headlines: Lato **Bold** UPPERCASE with 0.05em
+tracking, body: Lato Light — no more Audiowide/Ethnocentric), sharp corners
+throughout with diagonal HUD corner brackets, orange bloom instead of soft
+shadows. Implemented as a Compose Material 3 theme (`ui/Theme.kt`,
+`ui/KrtComponents.kt`) with a strict action hierarchy: exactly **one** filled
+orange CTA per context ("Extract blueprints"), secondary actions as ghost buttons,
+labels in neutral grey.
 
-Das **Extractor-Zeichen** aus der Basetool-Logofamilie dient als App-/Fenster-Icon
-(`app.ico` für Installer/Exe, `composeResources/drawable/basetool_extractor_icon.png`
-fürs Fenster und die Titelleiste). Es teilt sich Kreis und Stern mit dem
-Basetool-Zeichen der Weboberfläche, kehrt den Keil aber nach **unten** in eine
-Auffangklammer um — dieselbe DNA, gespiegelte Aussage: Daten werden aus dem Verse
-extrahiert. Dazu liegt ein **dezenter Honeycomb-Hintergrund**
-(`honeycomb_bg.svg` — orange Hexagone bei 10 % Deckkraft) als Textur hinter
-dem Inhalt. Zeichen + Honeycomb (und **Lato**) stammen aus dem Skill
-`das-kartell-design/assets/`. Auf eine separate Display-Schrift wird bewusst
-verzichtet: Das Design-System ist **Lato-only** — die markenseitig vorgesehene,
-**kommerzielle** Ethnocentric wird nicht gebündelt, und Headlines tragen ihren
-Charakter über Lato Bold + UPPERCASE + Tracking statt über eine eigene Schrift.
+The **Extractor mark** from the Basetool logo family serves as the app/window icon
+(`app.ico` for installer and exe,
+`composeResources/drawable/basetool_extractor_icon.png` for the window and title
+bar). It shares circle and star with the Basetool mark of the web interface, but
+inverts the wedge **downwards** into a catching bracket — the same DNA, the
+mirrored statement: data is extracted from the 'verse. Behind the content sits a
+**subtle honeycomb background** (`honeycomb_bg.svg` — orange hexagons at 10%
+opacity) as a texture. The mark, the honeycomb and **Lato** all come from
+`das-kartell-design/assets/`. A separate display typeface is deliberately omitted:
+the design system is **Lato-only** — the **commercial** Ethnocentric the brand
+would call for is not bundled, and headlines carry their character through Lato
+Bold + UPPERCASE + tracking rather than through a typeface of their own.
 
-Das Fenster ist **undekoriert** (kein weißer OS-Rahmen): eine eigene dunkle
-Titelleiste (`ui/WindowChrome.kt`) trägt das Extractor-Zeichen + Titel und eigene Minimieren-/
-Maximieren-/Schließen-Buttons, mit scharfen Ecken, oranger Akzentlinie, dünnem
-HUD-Rahmen und einer Resize-Ecke unten rechts.
+The window is **undecorated** (no white OS frame): a custom dark title bar
+(`ui/WindowChrome.kt`) carries the Extractor mark plus the title and its own
+minimise/maximise/close buttons, with sharp corners, an orange accent line, a thin
+HUD frame and a resize corner at the bottom right.
 
-## Lizenz
+## Licence
 
-Dieses Programm ist **freie Software** unter der **GNU General Public License,
-Version 3 oder (nach Wahl) später** (GPL-3.0-or-later). Den vollständigen Lizenztext
-findest du in [`LICENSE`](LICENSE).
+This program is **free software** under the **GNU General Public License, version
+3 or (at your option) any later version** (GPL-3.0-or-later). You find the full
+licence text in [`LICENSE`](LICENSE).
 
 ```
 Copyright (C) 2026 Basetool
 
-Dieses Programm ist freie Software: Du kannst es weitergeben und/oder verändern,
-solange du dich an die Bedingungen der GNU General Public License hältst. Es wird
-in der Hoffnung verteilt, dass es nützlich ist, jedoch OHNE JEDE GEWÄHRLEISTUNG.
+This program is free software: you can redistribute it and/or modify it under the
+terms of the GNU General Public License. It is distributed in the hope that it
+will be useful, but WITHOUT ANY WARRANTY.
 ```
 
-### Drittanbieter-Komponenten
+### Third-party components
 
-| Komponente | Lizenz |
+| Component | Licence |
 |---|---|
 | Kotlin, Compose Multiplatform, Material 3, Skiko, kotlinx-serialization/-coroutines | Apache-2.0 |
 | Skia (via Skiko) | BSD-3-Clause |
-| Gebündelte Java-Laufzeit (OpenJDK 25) | GPLv2 **mit Classpath Exception** |
-| Schrift **Lato** | SIL Open Font License 1.1 |
+| Bundled Java runtime (OpenJDK 25) | GPLv2 **with Classpath Exception** |
+| The **Lato** typeface | SIL Open Font License 1.1 |
 
-Der OFL-Lizenztext der Schrift liegt unter
-[`src/main/resources/fonts/`](src/main/resources/fonts/) (`Lato-OFL.txt`).
-Die **Classpath Exception** der gebündelten JRE erlaubt die Weitergabe
-zusammen mit diesem (GPL-)Programm, ohne dass die JRE selbst dadurch ihre Lizenz ändert;
-ihre Notices liegen im Installationspaket unter `runtime/legal/`.
+The OFL licence text of the typeface sits under
+[`src/main/resources/fonts/`](src/main/resources/fonts/) (`Lato-OFL.txt`). The
+**Classpath Exception** of the bundled JRE permits redistribution together with
+this (GPL) program without the JRE itself changing its licence because of it; its
+notices are in the installation package under `runtime/legal/`.
 
-### Marken
+### Trademarks
 
-Das **KRT-/„Das Kartell"-Logo** und zugehörige Markenzeichen sind Eigentum ihrer
-Inhaber. Die GPL deckt den **Quellcode** dieses Programms ab, **nicht** die Marken-
-und Logo-Assets — diese werden nicht zur freien Weiterverwendung lizenziert.
+The **KRT / "Das Kartell" logo** and the associated trademarks are the property of
+their owners. The GPL covers the **source code** of this program, **not** the
+brand and logo assets — those are not licensed for free reuse.
 
 ### Star Citizen
 
-Dies ist ein **inoffizielles Star-Citizen-Fan-Tool** und steht in keiner Verbindung zur
-Cloud-Imperium-Unternehmensgruppe. Es verwendet das **„Made by the Community"-Logo** und
-den Marken-Hinweis gemäß dem offiziellen **Star Citizen Fankit** (Fankit Agreement, Fan
-Style Guide und RSI Terms of Service). Es werden **keine** Star-Citizen-Spieldaten oder
--Assets mitgeliefert; die ausgelesenen `Game.log`-Dateien und die exportierten JSON-Daten
-gehören dir.
+This is an **unofficial Star Citizen fan tool** and is not affiliated with the
+Cloud Imperium group of companies. It uses the **"Made by the Community" logo** and
+the trademark notice in accordance with the official **Star Citizen Fankit**
+(Fankit Agreement, Fan Style Guide and RSI Terms of Service). **No** Star Citizen
+game data or assets are shipped with it; the `Game.log` files it reads and the JSON
+data it exports are yours.
 
 > Star Citizen®, Roberts Space Industries® and Cloud Imperium® are registered trademarks of Cloud Imperium Rights LLC
 
-Fankit-Assets wie das „Made by the Community"-Logo sind Eigentum von Cloud Imperium Rights
-LLC / Cloud Imperium Rights Ltd. und werden unter den Fankit-Bedingungen verwendet — die
-GPL dieses Projekts erstreckt sich **nicht** auf diese Marken und Assets.
+Fankit assets such as the "Made by the Community" logo are the property of Cloud
+Imperium Rights LLC / Cloud Imperium Rights Ltd. and are used under the Fankit
+terms — this project's GPL does **not** extend to those trademarks and assets.

@@ -184,8 +184,11 @@ Run from the **repo root** (not a subfolder), with **JDK 25** active. On Windows
 - **Comments in English; user-facing UI strings via the i18n catalogue.** Every
   UI string lives in `ui/i18n/Strings.kt` (German default + full English parity,
   switched by the title-bar DE/EN toggle — design spec §6). Never hardcode UI text at a
-  call site; add a property to BOTH catalogues. README is German; this file is English
-  by convention (agent/dev guidance).
+  call site; add a property to BOTH catalogues.
+- **Everything on GitHub is English** — issues, pull requests, commit messages, releases
+  (including the notes the VirusTotal step renders), this file and the README. The GUI is
+  the only German-facing surface, and it goes through the i18n catalogue. The README was
+  German until 2026-08-19; don't reintroduce German prose outside `Strings.kt`.
   - **`Strings` is an `interface`, `StringsDe`/`StringsEn` are `object`s — keep it that
     way.** A flat `class Strings(val …: String, …)` hits the JVM's 254-value-parameter
     constructor limit and throws `ClassFormatError` at class-LOAD time (the GUI crashes on
