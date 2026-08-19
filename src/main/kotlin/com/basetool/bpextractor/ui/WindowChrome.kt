@@ -47,9 +47,9 @@ import java.awt.Point
 
 /**
  * Custom KRT window chrome that replaces the white OS title bar (which clashes with
- * the dark HUD). Dark surface, KRT logo + title in Lato Bold orange, an orange
- * accent hairline, and hand-drawn minimize / maximize / close controls. The title
- * region is draggable; window edges are sharp (fits the brand).
+ * the dark HUD). Dark surface, the Basetool Extractor app mark + title in Lato Bold
+ * orange, an orange accent hairline, and hand-drawn minimize / maximize / close
+ * controls. The title region is draggable; window edges are sharp (fits the brand).
  */
 @Composable
 fun FrameWindowScope.KrtTitleBar(

@@ -44,7 +44,7 @@ import androidx.compose.ui.window.application
 import androidx.compose.ui.window.rememberWindowState
 import com.basetool.bpextractor.config.AppConfigStore
 import com.basetool.bpextractor.resources.Res
-import com.basetool.bpextractor.resources.krt_icon
+import com.basetool.bpextractor.resources.basetool_extractor_icon
 import com.basetool.bpextractor.resources.made_by_the_community_black
 import com.basetool.bpextractor.ui.CommandStrip
 import com.basetool.bpextractor.ui.CommunityDisclaimerFooter
@@ -871,7 +871,7 @@ private fun guiMain() = application {
     // Locked decision (REDESIGN_IMPLEMENTATION.md): default window 1180×820, resizable
     // down to 640×520 (the ResizeCorner enforces the floor).
     val windowState = rememberWindowState(width = 1180.dp, height = 820.dp)
-    val appIcon = painterResource(Res.drawable.krt_icon)
+    val appIcon = painterResource(Res.drawable.basetool_extractor_icon)
     val communityLogo = painterResource(Res.drawable.made_by_the_community_black)
     // Application-root scope for long-running work (extraction, model pull, export): it must
     // survive step/tab switches, which destroy the per-screen composables and would cancel any

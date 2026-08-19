@@ -406,7 +406,7 @@ basetool-bp-extractor/
 │   ├── ui/WindowChrome.kt            # undekorierte Titelleiste + Fenster-Buttons
 │   └── model/Models.kt               # Blueprint-JSON-Datenmodelle
 ├── src/main/resources/               # Fonts (Lato), app.ico, Prompt v1, OCR-Modelle (ocr/)
-├── src/main/composeResources/drawable/ # honeycomb_bg.svg, krt_icon.png, Made-by-the-Community-Logo
+├── src/main/composeResources/drawable/ # honeycomb_bg.svg, basetool_extractor_icon.png, Made-by-the-Community-Logo
 ├── src/test/kotlin/…                 # Unit-Tests
 ├── src/test/resources/sample.log     # Test-Fixture (Edge-Cases)
 ├── docs/refinery-extractor/          # Phase-0-Findings (Modell-Bake-off etc.)
@@ -425,17 +425,21 @@ als Compose-Material3-Theme (`ui/Theme.kt`, `ui/KrtComponents.kt`) mit strenger
 Action-Hierarchie: genau **eine** gefüllte Orange-CTA pro Kontext („Blueprints
 extrahieren"), Sekundäraktionen als Ghost-Buttons, Labels neutral-grau.
 
-Das **KRT-Logo** dient als App-/Fenster-Icon (`app.ico` für Installer/Exe,
-`composeResources/drawable/krt_icon.png` fürs Fenster), und ein **dezenter Honeycomb-Hintergrund**
-(`honeycomb_bg.svg` — orange Hexagone bei 10 % Deckkraft) liegt als Textur hinter
-dem Inhalt. Logo + Honeycomb (und **Lato**) stammen aus dem Skill
+Das **Extractor-Zeichen** aus der Basetool-Logofamilie dient als App-/Fenster-Icon
+(`app.ico` für Installer/Exe, `composeResources/drawable/basetool_extractor_icon.png`
+fürs Fenster und die Titelleiste). Es teilt sich Kreis und Stern mit dem
+Basetool-Zeichen der Weboberfläche, kehrt den Keil aber nach **unten** in eine
+Auffangklammer um — dieselbe DNA, gespiegelte Aussage: Daten werden aus dem Verse
+extrahiert. Dazu liegt ein **dezenter Honeycomb-Hintergrund**
+(`honeycomb_bg.svg` — orange Hexagone bei 10 % Deckkraft) als Textur hinter
+dem Inhalt. Zeichen + Honeycomb (und **Lato**) stammen aus dem Skill
 `das-kartell-design/assets/`. Auf eine separate Display-Schrift wird bewusst
 verzichtet: Das Design-System ist **Lato-only** — die markenseitig vorgesehene,
 **kommerzielle** Ethnocentric wird nicht gebündelt, und Headlines tragen ihren
 Charakter über Lato Bold + UPPERCASE + Tracking statt über eine eigene Schrift.
 
 Das Fenster ist **undekoriert** (kein weißer OS-Rahmen): eine eigene dunkle
-Titelleiste (`ui/WindowChrome.kt`) trägt Logo + Titel und eigene Minimieren-/
+Titelleiste (`ui/WindowChrome.kt`) trägt das Extractor-Zeichen + Titel und eigene Minimieren-/
 Maximieren-/Schließen-Buttons, mit scharfen Ecken, oranger Akzentlinie, dünnem
 HUD-Rahmen und einer Resize-Ecke unten rechts.
 
