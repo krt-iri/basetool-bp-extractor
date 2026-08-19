@@ -218,18 +218,21 @@ if ($report) {
 }
 
 # --- 5. Render the release-notes section ----------------------------------------------
+# English on purpose: everything on GitHub - issues, pull requests, releases - is English.
+# (The README is the deliberate exception and stays German; see CLAUDE.md.)
+#
 # No file name in the hint: GitHub renames release assets (spaces become dots), so the
 # name in dist\ is not the name the user ends up with in their Downloads folder.
-$verify = "Der Hash gehört zu genau der MSI, die an diesem Release hängt - lokal prüfbar mit ``Get-FileHash <deine-datei>.msi``."
+$verify = "The hash belongs to exactly the MSI attached to this release - check it locally with ``Get-FileHash <your-file>.msi``."
 
 if (-not $stats) {
     Write-Host "::warning title=VirusTotal::Analysis still running after $TimeoutMinutes min - linking the pending report."
     $state = "pending"
     $note = @"
-## Sicherheitsprüfung
+## Security check
 
-Die MSI wurde direkt nach dem CI-Build zu VirusTotal hochgeladen; beim Erstellen dieser
-Release-Notes lief die Analyse noch. Ergebnis: **[VirusTotal-Bericht]($permalink)**
+The MSI was uploaded to VirusTotal straight after the CI build; the analysis was still
+running when these release notes were written. Result: **[VirusTotal report]($permalink)**
 
 SHA-256: ``$sha256``
 
@@ -242,24 +245,25 @@ $verify
     Write-Host "Verdict  : $flagged / $engines engines flagged the file."
 
     $headline = if ($flagged -eq 0) {
-        "Die MSI wurde direkt nach dem CI-Build automatisch bei VirusTotal geprüft: **0 von $engines Engines** schlagen an."
+        "The MSI was scanned on VirusTotal automatically, straight after the CI build: **0 of $engines engines** flag it."
     } else {
-        "Die MSI wurde direkt nach dem CI-Build automatisch bei VirusTotal geprüft: **$flagged von $engines Engines** melden einen Treffer."
+        "The MSI was scanned on VirusTotal automatically, straight after the CI build: **$flagged of $engines engines** report a hit."
     }
     $caveat = if ($flagged -eq 0) { "" } else { @"
 
 
-Einzelne Treffer sind bei unsignierten Installern regelmäßig Fehlalarme - typisch
-``Wacatac``/``!ml`` bei Microsoft Defender, weil die MSI keine Authenticode-Signatur trägt
-und bei jedem Release neu und unbekannt ist. Der Bericht zeigt, welche Engine was meldet.
+Individual hits on an unsigned installer are routinely false positives - typically
+``Wacatac``/``!ml`` from Microsoft Defender, because the MSI carries no Authenticode
+signature and is a brand-new, unknown file on every release. The report shows which
+engine says what.
 "@ }
 
     $note = @"
-## Sicherheitsprüfung
+## Security check
 
 $headline
 
-- Bericht: **[VirusTotal]($permalink)**
+- Report: **[VirusTotal]($permalink)**
 - SHA-256: ``$sha256``
 
 $verify$caveat
