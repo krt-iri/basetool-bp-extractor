@@ -387,6 +387,28 @@ or bootstrapped as a local dotnet tool, OSMF-EULA auto-acceptance on CI, Util/UI
 extensions) is honored on the runner too. The release job is the only one granted
 `contents: write`.
 
+**Every release is scanned on VirusTotal** (`.github/scripts/virustotal-scan.ps1`) and the
+release notes link the report plus the MSI's SHA-256 — the answer to the recurring
+`Trojan:Script/Wacatac.H!ml` false positive Defender raises on the unsigned MSI (unsigned +
+zero reputation + an embedded PowerShell updater string reads as a dropper to an ML
+classifier). Load-bearing details:
+
+- It runs on VirusTotal's **free Public API**, which is only free under two conditions this
+  repo meets and a future change could break: it "must not be used in commercial products
+  or services" (GPL-3.0 community tool, nothing is sold) and "must not be used in business
+  workflows that do not contribute new files" (we upload a new MSI every time). Quotas are
+  500 req/day and **4 req/min** — that is why the poll interval must stay ≥ 15s.
+- **Everything uploaded to the Public API becomes public on VirusTotal.** Only the MSI —
+  already a public release asset — may ever be passed to it. Never a `Game.log`, never a
+  refinery screenshot (guardrails 1 / 1a).
+- **The scan never gates the release.** A detection does not fail the build (the known
+  Defender FP would block every release), and any VT problem degrades to an empty
+  `release_note` output and exit 0. Requires the `VIRUSTOTAL_API_KEY` repo secret; without
+  it the step warns and the release publishes with the generated notes alone.
+- Files > 32 MB (ours is one) must go through `GET /files/upload_url`, not `POST /files`.
+  VT doesn't document that endpoint's tier; verified 2026-08-19 that a free Public API key
+  gets a `bigfiles.virustotal.com` URL from it. (Premium has its own `/private/…` variant.)
+
 ## Repo / publishing
 
 - Public repo: `https://github.com/krt-profit/basetool-sc-extractor` (branch `main`).
