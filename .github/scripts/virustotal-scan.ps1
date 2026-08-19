@@ -97,6 +97,52 @@ function Get-HttpStatus($ErrorRecord) {
     return 0
 }
 
+# Posts $File as a multipart/form-data "file" field, returning @{ Ok; Status; Body; CurlExit }.
+#
+# Why curl and not `Invoke-RestMethod -Form`: VirusTotal documents this upload as
+# `curl -F file=@...`, and curl is what the endpoint is actually tested against. Doing it
+# in-process means reproducing curl's exact multipart bytes, and .NET's
+# MultipartFormDataContent differs in three ways that VirusTotal's Google App Engine
+# blobstore rejects with `HTTP 400 Malformed multipart body`: it quotes the boundary
+# (`boundary="..."`), writes `name=file` unquoted, and appends an RFC 5987
+# `filename*=utf-8''...` because our file name contains spaces. None of that is reachable
+# through -Form. curl.exe has shipped in Windows since 1803 and is on every windows-latest
+# runner, so this is both the simpler and the better-tested path.
+function Send-MultipartFile([string]$Uri, [System.IO.FileInfo]$File) {
+    $curl = Join-Path $env:SystemRoot 'System32\curl.exe'
+    if (-not (Test-Path -LiteralPath $curl)) { $curl = 'curl.exe' }   # PATH fallback
+
+    # The key travels through a stdin config file so it never lands in the process command
+    # line. Quoting it raw is safe - API keys are hex, and curl's config parser would treat
+    # a backslash as an escape.
+    $keyConfig = 'header = "x-apikey: {0}"' -f $ApiKey
+
+    # --fail-with-body: non-zero exit on 4xx/5xx but still print VirusTotal's error JSON.
+    # --write-out: append the status code on its own final line.
+    # NOTE: curl's -F treats ';' and ',' in the value as separators. Our MSI name (from
+    # build.gradle.kts) contains neither; spaces are fine as one argv element.
+    $lines = $keyConfig | & $curl --config - `
+        --silent --show-error --fail-with-body `
+        --max-time 900 `
+        --header 'accept: application/json' `
+        --form "file=@$($File.FullName)" `
+        --write-out '\n%{http_code}' `
+        --url $Uri
+    $exit = $LASTEXITCODE
+
+    $all = @($lines)
+    $status = 0
+    if ($all.Count) { [int]::TryParse(("$($all[-1])").Trim(), [ref]$status) | Out-Null }
+    $body = if ($all.Count -gt 1) { ($all[0..($all.Count - 2)]) -join "`n" } else { '' }
+
+    [pscustomobject]@{
+        Ok       = ($exit -eq 0 -and $status -ge 200 -and $status -lt 300)
+        Status   = $status
+        Body     = $body
+        CurlExit = $exit
+    }
+}
+
 # --- 3. Upload, unless VirusTotal already knows this exact build -----------------------
 # The lookup costs one request and saves a ~100 MB upload on a re-run of the release job.
 $report = $null
@@ -119,16 +165,33 @@ try {
             Write-Host "Artifact exceeds 32 MB - using a one-shot upload URL."
         }
         Write-Host "Uploading..."
-        $submission = Invoke-Vt $uploadUrl -Method Post -Form @{ file = $file } -TimeoutSec 900
-        $analysisId = $submission.data.id
+        $watch = [Diagnostics.Stopwatch]::StartNew()
+        $response = Send-MultipartFile $uploadUrl $file
+        Write-Host "Uploaded in $([math]::Round($watch.Elapsed.TotalSeconds, 1))s."
+        if (-not $response.Ok) {
+            # Status 0 means curl never got an HTTP answer at all - report its exit code.
+            $why = if ($response.Status) { "HTTP $($response.Status) - $($response.Body)" }
+                   else { "curl exit $($response.CurlExit)" }
+            Stop-WithoutNote "Upload rejected ($why)" $sha256
+        }
+        $analysisId = ($response.Body | ConvertFrom-Json).data.id
         Write-Host "Analysis : $analysisId"
     }
 } catch {
-    $hint = switch (Get-HttpStatus $_) {
-        401     { "the API key was rejected" }
-        429     { "the public-API quota (500/day, 4/min) is exhausted" }
-        default { $_.Exception.Message }
+    # $_ must be captured BEFORE the switch: inside it, $_ is the switch's input (the
+    # status code), so reading $_.Exception there yields nothing and the real cause is
+    # lost. Elapsed time separates "rejected instantly" from "uploaded, then refused".
+    $err = $_
+    $status = Get-HttpStatus $err
+    # VirusTotal returns its error JSON as the response body, which lands in ErrorDetails.
+    $detail = if ($err.ErrorDetails.Message) { $err.ErrorDetails.Message } else { $err.Exception.Message }
+    $hint = switch ($status) {
+        401     { "HTTP 401 - the API key was rejected" }
+        429     { "HTTP 429 - the public-API quota (500/day, 4/min) is exhausted" }
+        0       { "$($err.Exception.GetType().Name): $detail" }
+        default { "HTTP $status - $detail" }
     }
+    if ($watch) { $hint += " (after $([math]::Round($watch.Elapsed.TotalSeconds, 1))s)" }
     Stop-WithoutNote "Upload failed ($hint)" $sha256
 }
 
