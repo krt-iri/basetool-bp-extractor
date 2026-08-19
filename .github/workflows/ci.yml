@@ -85,10 +85,28 @@ jobs:
           path: dist/*.msi
           if-no-files-found: error
 
+      # Uploads the MSI to VirusTotal (free Public API - see the script header for why
+      # that licence fits this repo) and renders the release-notes section linking the
+      # report. Deliberately non-gating: the MSI is unsigned, so Defender's ML classifier
+      # flags it as a Wacatac false positive, and failing on a detection would block every
+      # release. `continue-on-error` plus the script's own exit-0 policy make the scan a
+      # courtesy that can never hold up a publish.
+      - name: Scan the MSI on VirusTotal
+        id: virustotal
+        continue-on-error: true
+        env:
+          VIRUSTOTAL_API_KEY: ${{ secrets.VIRUSTOTAL_API_KEY }}
+        run: |
+          $msi = Get-ChildItem dist\*.msi | Select-Object -First 1
+          .\.github\scripts\virustotal-scan.ps1 -Path $msi.FullName
+
       - name: Publish GitHub release
         uses: softprops/action-gh-release@v3
         with:
           files: dist/*.msi
+          # `body` goes first, GitHub's generated changelog is appended below it. Empty
+          # when the scan was unavailable, which just leaves the generated notes.
+          body: ${{ steps.virustotal.outputs.release_note }}
           generate_release_notes: true
           fail_on_unmatched_files: true
           # Tags like v1.2.0-rc1 are published as pre-releases.

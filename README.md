@@ -62,6 +62,26 @@ Startmenü, Desktop-Verknüpfung).
 > Ein separates Java/JRE muss **nicht** installiert werden — die Laufzeit ist im
 > Installer enthalten.
 
+### Warnt Windows Defender?
+
+Die MSI ist **nicht signiert** — ein Code-Signing-Zertifikat kostet jährlich Geld.
+Für Microsoft Defender ist damit jede neue Version eine unbekannte Datei ohne
+Reputation, und gelegentlich meldet er deshalb einen **Fehlalarm**, meist als
+`Trojan:Script/Wacatac.H!ml`. Das `!ml` steht für „Machine-Learning-Heuristik" —
+also für eine Vermutung, nicht für einen konkreten Fund. Dass die MSI intern ein
+PowerShell-Schnipsel für die Update-Installation mitbringt (`msiexec` starten,
+danach aufräumen), sieht für so einen Klassifikator nach einem Installer-Trojaner
+aus, obwohl es genau das dokumentierte Update-Verhalten ist.
+
+Zum Gegenprüfen lädt die CI **jedes Release automatisch zu VirusTotal** hoch
+(~70 Virenscanner). In den Release-Notes stehen der Link zum Bericht und der
+SHA-256 der MSI — damit lässt sich nachrechnen, dass die heruntergeladene Datei
+exakt die aus dem Build ist:
+
+```powershell
+Get-FileHash <deine-datei>.msi
+```
+
 ### Updates
 
 Beim Start prüft die App still auf
