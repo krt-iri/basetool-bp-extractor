@@ -1,0 +1,20 @@
+# Code owners for basetool-sc-extractor.
+#
+# GitHub requests a review from the owners of every changed path on each pull request.
+# It only *blocks* a merge when the branch protection rule for `main` has
+# "Require review from Code Owners" enabled - the file alone is a routing hint.
+#
+# Owners must have write access to the repository, otherwise GitHub silently ignores
+# the entry. Later rules win over earlier ones, so the catch-all goes first.
+
+# Everything, unless a rule below overrides it.
+*                       @greluc
+
+# Release-critical and security-sensitive paths, called out so a change here can never
+# slip through under a broader rule added later: the CI/release pipeline (including the
+# build-provenance attestation and the VirusTotal scan), the MSI packaging script, and
+# the outbound network paths (basetool ingest, device grant, DPoP, credential store).
+/.github/               @greluc
+/package-msi.ps1        @greluc
+/src/main/kotlin/com/basetool/bpextractor/net/    @greluc
+/src/main/kotlin/com/basetool/bpextractor/update/ @greluc

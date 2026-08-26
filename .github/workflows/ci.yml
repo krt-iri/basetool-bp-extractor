@@ -51,7 +51,9 @@ jobs:
     if: startsWith(github.ref, 'refs/tags/v')
     runs-on: windows-latest
     permissions:
-      contents: write   # create the GitHub release and upload the MSI asset
+      contents: write       # create the GitHub release and upload the MSI asset
+      id-token: write       # mint the OIDC token Sigstore signs the provenance with
+      attestations: write   # store the build-provenance attestation on the repository
     steps:
       - uses: actions/checkout@v7
 
@@ -77,6 +79,16 @@ jobs:
       # extensions, and copies the MSI to dist\.
       - name: Build MSI installer
         run: .\package-msi.ps1
+
+      # SLSA build provenance, signed via Sigstore with a short-lived OIDC certificate:
+      # it binds the MSI's digest to this repository, this workflow file and the tagged
+      # commit, so anyone can prove the download came out of this build and not off
+      # someone's desk (`gh attestation verify`). Runs on the file in dist\ before it is
+      # published, and it attests the artifact only - nothing is uploaded.
+      - name: Attest build provenance for the MSI
+        uses: actions/attest@v4
+        with:
+          subject-path: dist/*.msi
 
       - name: Upload MSI as build artifact
         uses: actions/upload-artifact@v7
@@ -104,9 +116,21 @@ jobs:
         uses: softprops/action-gh-release@v3
         with:
           files: dist/*.msi
-          # `body` goes first, GitHub's generated changelog is appended below it. Empty
-          # when the scan was unavailable, which just leaves the generated notes.
-          body: ${{ steps.virustotal.outputs.release_note }}
+          # `body` goes first, GitHub's generated changelog is appended below it. The
+          # VirusTotal part is empty when the scan was unavailable, which just leaves the
+          # provenance section and the generated notes.
+          body: |
+            ${{ steps.virustotal.outputs.release_note }}
+
+            ## Build provenance
+
+            This MSI ships with a signed [build provenance attestation](https://github.com/krt-profit/basetool-sc-extractor/attestations)
+            (SLSA, Sigstore) tying it to the commit and workflow that built it. Verify the
+            file you downloaded with the [GitHub CLI](https://cli.github.com/):
+
+            ```
+            gh attestation verify <your-file>.msi --repo krt-profit/basetool-sc-extractor
+            ```
           generate_release_notes: true
           fail_on_unmatched_files: true
           # Tags like v1.2.0-rc1 are published as pre-releases.

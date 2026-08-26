@@ -390,6 +390,15 @@ or bootstrapped as a local dotnet tool, OSMF-EULA auto-acceptance on CI, Util/UI
 extensions) is honored on the runner too. The release job is the only one granted
 `contents: write`.
 
+**Every release gets a signed build-provenance attestation** (`actions/attest@v4`, SLSA
+via Sigstore) over the MSI in `dist\`, so a download can be traced back to the commit and
+workflow run that built it (`gh attestation verify <file>.msi --repo krt-profit/basetool-sc-extractor`).
+It needs `id-token: write` + `attestations: write` on the release job — job-level
+`permissions:` **replaces** the workflow default, so all three (incl. `contents: write`)
+must stay listed together. It attests the artifact only; nothing is uploaded anywhere, and
+public repos get this on every GitHub plan. The step sits between the MSI build and the
+publish, and the release notes tell users how to verify.
+
 **Every release is scanned on VirusTotal** (`.github/scripts/virustotal-scan.ps1`) and the
 release notes link the report plus the MSI's SHA-256 — the answer to the recurring
 `Trojan:Script/Wacatac.H!ml` false positive Defender raises on the unsigned MSI (unsigned +
@@ -415,6 +424,9 @@ classifier). Load-bearing details:
 ## Repo / publishing
 
 - Public repo: `https://github.com/krt-profit/basetool-sc-extractor` (branch `main`).
+- `.github/CODEOWNERS` routes review requests to `@greluc` (catch-all plus explicit
+  entries for `.github/`, `package-msi.ps1` and `net/` + `update/`). It only *blocks* a
+  merge if `main`'s branch protection has "Require review from Code Owners" on.
 - **License: GPL-3.0-or-later** (`LICENSE`). Deps are permissive (Apache-2.0/BSD); the
   bundled JRE is GPLv2 + Classpath Exception (redistribution OK, does not infect app
   code). The bundled font (Lato) ships its OFL text under

@@ -219,7 +219,8 @@ if ($report) {
 
 # --- 5. Render the release-notes section ----------------------------------------------
 # English on purpose: everything on GitHub - issues, pull requests, releases - is English.
-# (The README is the deliberate exception and stays German; see CLAUDE.md.)
+# (The GUI is the only German-facing surface, and it goes through the i18n catalogue;
+# the README has been English since 2026-08-19. See CLAUDE.md.)
 #
 # No file name in the hint: GitHub renames release assets (spaces become dots), so the
 # name in dist\ is not the name the user ends up with in their Downloads folder.
