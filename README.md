@@ -81,6 +81,24 @@ one the build produced:
 Get-FileHash <your-file>.msi
 ```
 
+### Where does the MSI come from?
+
+Every release carries a signed
+[build provenance attestation](https://github.com/krt-profit/basetool-sc-extractor/attestations)
+(SLSA, via Sigstore). It records which commit, which workflow and which run produced
+exactly this file, and it is signed with a short-lived certificate that only GitHub's
+build machine can obtain — nobody can create one for an MSI built somewhere else. With
+the [GitHub CLI](https://cli.github.com/) installed you can check your download against
+it:
+
+```powershell
+gh attestation verify <your-file>.msi --repo krt-profit/basetool-sc-extractor
+```
+
+That is the strongest statement available without a code-signing certificate: it does
+not stop Defender's heuristic, but it does prove the file is the one this repository's
+release build produced.
+
 ### Updates
 
 On start the app quietly checks
