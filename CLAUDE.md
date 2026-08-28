@@ -25,6 +25,47 @@ stay out of scope — for blueprints, capture every detail the log carries; for 
 read the SETUP panel only (PROCESSING is deferred). Inference always runs locally via
 the user's Ollama; never add a cloud-inference path.
 
+## The knowledge base (HARD RULE — read before every task)
+
+The **Basetool Knowledge Base** is the single source of truth about the Profit Basetool as a whole:
+an Obsidian vault and git repository (`basetool-knowledge`), sitting beside this repository in the
+workspace. It covers every part of the system — backend, frontend, ingest, keycloak-spi, the Android
+app, **this extractor**, the P4K reader — plus the roles, permissions, decisions, incidents and
+runbooks around them.
+
+**This rule is binding on every AI agent working on the Basetool or any of its parts and
+repositories, without exception.**
+
+- **Read it before you start any task**, not after. Enter through its root map
+  (`00 Maps/Basetool.md`); its own `CLAUDE.md` explains how it is written. For this repo start with
+  `SC Extractor`, `Ingest`, `Keycloak`, `Raffinerie` and `Blueprints` — the ingest contract, the
+  device grant, the DPoP binding and the two allowlists are all documented there, and the server
+  half of each is in the `basetool` repo where you cannot see it from here.
+- **Every change here updates the knowledge base in the same unit of work**: a workflow change, a
+  new field in the export contract, an auth or DPoP behaviour, a packaging decision, a guardrail
+  learned the hard way. It is not written afterwards and never "caught up later".
+- The vault is a **separate git repository**, so nothing in this repo's CI can gate it. That is
+  exactly why it is a hard rule: no build will fail if you skip it, and skipping it is still an
+  incomplete change.
+- **It must never drift from reality.** It represents the truth about this project and every part of
+  the system orients by it — a drifted vault is worse than none, because each stale note still reads
+  as authoritative. **If you notice it is out of date, incomplete, or does not cover something,
+  update or extend it immediately as part of the work in hand**, even when the gap lies outside your
+  task. When the vault and the code disagree the **code** is right, and the note gets corrected in
+  the same session, saying so and dated.
+- Move `updated:` on every note you re-checked, and run `python "90 Meta/vaultcheck.py"` from the
+  vault root before committing.
+- **If you cannot find the vault, ask the user where it is at the start of the session.** Its
+  location is workspace-specific and it is **not** a submodule, so a fresh machine, a worktree or a
+  CI runner may simply not have it beside this repo. Do not guess a path, do not proceed as if the
+  rule did not apply, and do not silently skip it — a missing vault is a question to ask, never a
+  rule to drop.
+
+> **Never a secret and never personal data in the vault** — and here that has a specific edge:
+> nothing derived from `game-log/` or from a real refinery screenshot may go in, since both carry a
+> player handle and a screenshot carries the account balance (guardrails 1 and 1a below). Write the
+> *shape* of a fact, never a captured value.
+
 ## Commands
 
 Run from the **repo root** (not a subfolder), with **JDK 25** active. On Windows use
