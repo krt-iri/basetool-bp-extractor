@@ -4,7 +4,7 @@ plugins {
     kotlin("jvm") version "2.4.10"
     kotlin("plugin.compose") version "2.4.10"
     kotlin("plugin.serialization") version "2.4.10"
-    id("org.jetbrains.compose") version "1.11.1"
+    id("org.jetbrains.compose") version "1.12.0"
 }
 
 group = "com.basetool"
@@ -25,15 +25,15 @@ repositories {
 dependencies {
     implementation(compose.desktop.currentOs)
     // The `compose.material3` DSL accessor is deprecated; declare the dependency directly. 1.9.0 is
-    // the STABLE Material3 release the Compose 1.11.1 plugin maps to (no longer alpha) — keep it in
-    // step with the Compose plugin version when that bumps.
+    // still the STABLE Material3 release as of the Compose 1.12.0 plugin (every newer material3 line
+    // is alpha-only) — keep it in step with the Compose plugin version once a newer stable line ships.
     implementation("org.jetbrains.compose.material3:material3:1.9.0")
     // Compose resources library — bundled images/SVGs via the generated `Res` + `painterResource`
     // (replaces the deprecated androidx.compose.ui.res.useResource/loadImageBitmap/loadSvgPainter).
     // Like material3 above, the `compose.components.resources` DSL accessor is deprecated, so the
     // coordinate is explicit. This one tracks the Compose plugin version 1:1 (unlike material3,
     // whose stable line lags) — bump both together with the plugin.
-    implementation("org.jetbrains.compose.components:components-resources:1.11.1")
+    implementation("org.jetbrains.compose.components:components-resources:1.12.0")
     implementation("org.jetbrains.kotlinx:kotlinx-serialization-json:1.11.0")
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-swing:1.11.0")
     // Classical-OCR digit cross-check (PP-OCRv3 recognition via ONNX Runtime) — a decorrelated
