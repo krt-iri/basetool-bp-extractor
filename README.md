@@ -210,7 +210,7 @@ uninstalling removes **everything**:
 
 | Artefact | after uninstall |
 |---|---|
-| Program folder `%LOCALAPPDATA%\Basetool SC Extractor\` (bundled JRE, ~515 files) | removed |
+| Program folder `%LOCALAPPDATA%\Basetool SC Extractor\` (bundled JRE, ~220 files, ~183 MB) | removed |
 | Start-menu group "Basetool" including the shortcut | removed |
 | Desktop shortcut | removed |
 | "Apps & features" / registry entry | removed |
@@ -247,10 +247,13 @@ folder — so the program folder itself stays completely removable:
 ```jsonc
 {
   "schemaVersion": 1,
-  "tool": "Basetool Blueprint Extractor",
-  "toolVersion": "1.0.0",
+  "tool": "Basetool SC Extractor",
+  "toolVersion": "2.8.2",
   "generatedAt": "2026-05-30T21:39:45Z",   // UTC, when the export was created
   "sourceFolder": "…\\StarCitizen\\LIVE",   // the channel folder
+  "additionalSourceFolders": [               // extra channels swept alongside it — the
+    "…\\StarCitizen\\HOTFIX"                //   sibling HOTFIX next to LIVE; absent when none
+  ],
   "logFilesScanned": 424,                    // Game.log + logbackups\*.log
   "blueprintCount": 179,                     // total blueprints received
   "players": [
@@ -319,7 +322,10 @@ handles the real-world quirks of these lines:
   (`User Login Success - Handle[…]` or the character-status line with `geid` and
   `accountId`) — the `MissionId` on the blueprint line is always `0000…` and
   therefore useless.
-- **The build number** comes from the file name (`Game Build(11518367) …`).
+- **The build number** comes from the file name (`Game Build(11518367) …`). The
+  live `Game.log` has none, so for that one file it is read from the
+  `BackupNameAttachment="… Build(<n>) …"` header on line 1 — read once, on the
+  first line only. The file name always wins where it carries one.
 
 Large logs (sometimes > 30 MB) are **streamed line by line**, never loaded into
 memory as a whole.
@@ -388,14 +394,18 @@ In [`build.gradle.kts`](build.gradle.kts) under `windows { … }`:
 | `upgradeUuid` | stable id so new versions replace the old one |
 | `iconFile` | custom icon (place it at `src/main/resources/app.ico`) |
 
-> The MSI is ~108 MB. What gets bundled is a **slim** JDK 25 runtime — only the
-> modules actually needed: `modules("java.instrument", "jdk.unsupported",
-> "java.net.http", "jdk.management")` (HTTP client for Ollama, memory probe for the
-> hardware preflight) plus the ones the Compose plugin detects automatically
-> (`java.desktop` etc.), determined via `gradlew suggestRuntimeModules`. The user
-> still needs no Java of their own.
+> The MSI is ~108 MB and installs to ~183 MB. What gets bundled is a **slim** JDK 25
+> runtime — only the modules actually needed: `modules("java.instrument",
+> "jdk.unsupported", "java.net.http", "jdk.management")` (HTTP client for Ollama,
+> memory probe for the hardware preflight) plus the ones the Compose plugin detects
+> automatically (`java.desktop` etc.), determined via `gradlew suggestRuntimeModules`.
+> The user still needs no Java of their own. On top of that sit the two **PP-OCRv3
+> ONNX models** (~13 MB) of the classical-OCR cross-reader; ONNX Runtime itself needs
+> **no** extra jlink module, and its native libraries extract to `%TEMP%`, never into
+> the installation folder.
 > (`jvmArgs += "--enable-native-access=ALL-UNNAMED"` silences the JDK 25 "native
-> access" warnings that Skiko's `System.load()` would otherwise write to stderr.)
+> access" warnings that `System.load()` would otherwise write to stderr — from Skiko's
+> renderer **and** from ONNX Runtime.)
 
 ---
 
@@ -406,17 +416,26 @@ basetool-bp-extractor/
 ├── build.gradle.kts                  # build + Compose/MSI configuration
 ├── settings.gradle.kts
 ├── gradle.properties
-├── gradlew(.bat)                     # Gradle wrapper (9.7.0)
+├── gradlew(.bat)                     # Gradle wrapper (9.7.1)
 ├── package-msi.ps1                   # MSI build (WiX selection, EULA/extension preflight)
 ├── src/main/kotlin/com/basetool/bpextractor/
 │   ├── Main.kt                       # Compose GUI (tabs/shell), entry point
 │   ├── BlueprintParser.kt            # blueprint line parsing (core)
 │   ├── BlueprintExtractor.kt         # folder scan, aggregation, JSON
 │   ├── Legal.kt                      # mandatory Fankit texts (trademark notice, verbatim)
+│   ├── ScLocalization.kt             # reads the game's own global.ini (blueprint label)
+│   ├── config/AppConfig.kt           # %APPDATA% config.json (ingest URL, consent, last folder)
+│   ├── net/BasetoolIngestClient.kt   # POST /v1/{blueprint-preview,refinery-extract}
+│   ├── net/auth/                     # device grant (RFC 8628), DPoP (RFC 9449), DPAPI vault
+│   ├── update/UpdateChecker.kt       # GitHub release check, verified download, installer handoff
 │   ├── refinery/                     # refinery pipeline (pure, no UI)
 │   │   ├── Locate.kt                 #   panel detection + normalisation (CV)
 │   │   ├── PanelReader.kt / PanelRead.kt  # VLM read + markdown reformat
 │   │   ├── Stitcher.kt / Validation.kt    # row stitching + confidence policy
+│   │   ├── CrossModelVerify.kt       #   second VLM as a decorrelated reader
+│   │   ├── TextDetector/DigitOcr/PanelOcr/OcrCrossCheck/OcrModels.kt
+│   │   │                             #   classical-OCR cross-reader (PP-OCRv3 via ONNX Runtime)
+│   │   ├── CaptureTime.kt            #   capturedAt from the file name, else mtime
 │   │   ├── RefineryPipeline.kt       #   orchestration + JSON export
 │   │   ├── Preflight.kt              #   hardware probes + tier decision
 │   │   ├── OllamaClient.kt           #   Ollama HTTP API (tags/ps/chat/pull)
@@ -430,6 +449,9 @@ basetool-bp-extractor/
 │   ├── ui/refinery/                  # the five refinery screens, UI state (image selection),
 │   │                                 #   ImageIntake (Ctrl+V / drag & drop capture)
 │   ├── ui/FilePicker.kt              # KRT file/folder picker (no native dialogs)
+│   ├── ui/UpdateBanner.kt            # the start screen's update offer
+│   ├── ui/AccountController.kt / AccountStatusBar.kt  # sign-in state, "disconnect"
+│   ├── ui/SendController.kt / SendOverlay.kt          # the "Send to Basetool" flow
 │   ├── ui/i18n/Strings.kt            # DE/EN string catalogue
 │   ├── ui/WindowChrome.kt            # undecorated title bar + window buttons
 │   └── model/Models.kt               # blueprint JSON data models
@@ -437,6 +459,9 @@ basetool-bp-extractor/
 ├── src/main/composeResources/drawable/ # honeycomb_bg.svg, basetool_extractor_icon.png, Made-by-the-Community logo
 ├── src/test/kotlin/…                 # unit tests
 ├── src/test/resources/sample.log     # test fixture (edge cases)
+├── .github/workflows/ci.yml          # test + app image; on a v* tag: MSI, attestation, VT scan, release
+├── .github/scripts/virustotal-scan.ps1 # release scan + the notes section it renders
+├── .github/CODEOWNERS                # review routing (@greluc; CI, packaging, net/, update/)
 ├── docs/refinery-extractor/          # phase 0 findings (model bake-off etc.)
 ├── docs/img/                         # README images (Made-by-the-Community logo)
 └── game-log/                         # private sample logs (not in the repo)
@@ -493,10 +518,14 @@ will be useful, but WITHOUT ANY WARRANTY.
 | Kotlin, Compose Multiplatform, Material 3, Skiko, kotlinx-serialization/-coroutines | Apache-2.0 |
 | Skia (via Skiko) | BSD-3-Clause |
 | Bundled Java runtime (OpenJDK 25) | GPLv2 **with Classpath Exception** |
+| ONNX Runtime (the classical-OCR cross-reader) | MIT |
+| The bundled **PP-OCRv3** detection/recognition models (PaddleOCR, ONNX packaging by RapidOCR) | Apache-2.0 |
 | The **Lato** typeface | SIL Open Font License 1.1 |
 
 The OFL licence text of the typeface sits under
-[`src/main/resources/fonts/`](src/main/resources/fonts/) (`Lato-OFL.txt`). The
+[`src/main/resources/fonts/`](src/main/resources/fonts/) (`Lato-OFL.txt`), the
+provenance and licence of the two OCR models under
+[`src/main/resources/ocr/`](src/main/resources/ocr/) (`NOTICE.txt`). The
 **Classpath Exception** of the bundled JRE permits redistribution together with
 this (GPL) program without the JRE itself changing its licence because of it; its
 notices are in the installation package under `runtime/legal/`.
