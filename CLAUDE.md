@@ -380,7 +380,7 @@ Run from the **repo root** (not a subfolder), with **JDK 25** active. On Windows
   alpha-only days the deprecated `compose.material3` accessor was kept for) and
   `org.jetbrains.compose.components:components-resources` (was `compose.components.resources`).
   Bump BOTH whenever the `org.jetbrains.compose` plugin moves — components-resources tracks the
-  plugin version 1:1, while material3's stable line lags it (plugin 1.11.1 ↔ material3 1.9.0), so
+  plugin version 1:1, while material3's stable line lags it (plugin 1.12.0 ↔ material3 1.9.0), so
   they are not interchangeable. Check the resolved version with
   `gradlew dependencies --configuration runtimeClasspath` rather than assuming.
 - **Bundled drawables go through the Compose resources library:** images/SVGs live in
