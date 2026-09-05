@@ -469,3 +469,103 @@ The smoke harness gained an env-gated golden-expected diff
 (`PROMPT_SMOKE_EXPECTED`/`PROMPT_SMOKE_WRITE_EXPECTED`) so future prompt/model changes
 fail loudly on regressions; the expected file holds private capture data and lives
 next to the golden set, never in the repo.
+
+## Addendum 2026-09-05 — the game reskinned the terminal; Locate broke silently
+
+Twelve new sample orders (a4-era corpus grown to 34) turned out to be a **second terminal
+skin**. The corpus changes over between the captures of 2026-07-19 and 2026-07-20; the new
+one names itself in its own header bar, `// REFINERY SYSTEM C47.02`, so it is called the
+**C47 skin** here. Everything §3 pinned about Locate is amber-skin-specific, and all of it
+moved.
+
+**The failure mode is the important part: nothing failed.** Locate's contract is "find the
+panel, else fall back to fixed 4K geometry", so a wrong crop is indistinguishable from a
+right one downstream — the model transcribes what it is shown, the stitcher merges it,
+validation checks it against a header total that was cropped away too. Every C47 order
+produced a work order, read out of the STATION PROFILE sidebar with the YIELD and REFINE
+columns off the right edge. Only looking at the *crops* (`PanelDumpTest`) showed it.
+
+**Three anchors, three independent breakages:**
+
+1. *CONFIRM is green*, ~RGB(154,182,59) on the bright captures and ~RGB(117,126,54) on the
+   dim ones — under `isCtaOrange`'s `r >= 170` floor, so the CTA anchor matched nothing.
+   `isCtaGreen` spans both exposures; kept green-dominant so it can never take the amber fill.
+2. *The tab strip is a diagonal hatch* over the panel's top-left ~0.37, not a solid bar across
+   the header. It was invisible to the detector but not to the eye: the 1/4-scale downscale was
+   AWT **bicubic**, which point-samples on a 4× reduction and hit the bright stripes and the dark
+   gaps alternately, matching neither. Measured on the hatch block: **25 %** of the 1/4-scale
+   pixels passing `isMaroon` under bicubic, **83 %** under a box filter (the mean of each 4×4
+   block — the correct filter for a downscale, and the one the strip's *area mean* is maroon
+   under). A solid strip averages to itself, so the amber captures are untouched.
+3. *Captures now include the terminal's system banner*, a wide dark-red bar at the very top of
+   the frame. It clusters like a tab strip and, being leftmost, wins the newest-order rule.
+   Guarded by position: a maroon run inside the top **6 %** of the capture height is the banner
+   (measured 0–3.2 % across the corpus; the lowest real tab strip sits at 7.8 %).
+
+**What sampling correctly then surfaced** — the box filter also makes the *world* legible to the
+anchors, and that needed answering:
+
+- On a 32:9 frame a rock face under the refinery work lights matches maroon and its highlights
+  match the CTA, and it sits LEFT of the real panel. Split by **mean per-pixel saturation**,
+  ceiling 35: 10–17 across every real work-order panel, 28 on the warmest ambient-lit one, 51 on
+  the rock. Luminance cannot separate them — §3's "the interior is uniformly dark" is true of the
+  hangar too.
+- The strip is only a panel-width proxy in the amber skin. The CTA search window goes to **2.9**
+  strip widths (was 1.9), and the panel's right edge is now the **widest** CTA run between strip
+  and CTA row, not the lowest row's: a button's fill breaks into separate runs at its border rows,
+  and the lowest row alone stopped ~40 px short — exactly enough to cut REFINE off. Both widenings
+  are held back on ultrawide frames, where the narrow window is what §3 verified and the
+  terminal-extent rescue already covers the failure.
+- One capture ends just above CANCEL/CONFIRM, so no CTA exists to confirm with. A **CTA-less
+  rescue** takes the panel from the strip to the capture's bottom edge — only when no candidate
+  was confirmed at all, only for a strip in the top third, still subject to the saturation guard.
+  Fixed geometry is a far worse guess than the strip we did find.
+
+**The sweep is deterministic — measured, against the standing assumption.** Three consecutive
+full sweeps (34 orders, 52 images, `qwen3-vl:8b-instruct`, no verify partner) came back
+**byte-identical**, so the diffs against the expected file are code behaviour, not run noise, and
+were resolved cell by cell against the pixels of the captures rather than by re-blessing a run.
+
+**The C47 REFINE toggle reads as ON on every row, and the prompt cannot fix it.** The restyle
+turned the toggle from a square amber block into a rounded pill with a coloured knob (orange
+right = ON, red left = OFF). An amended prompt naming both switch styles, both cues and the fact
+that rows are usually mixed changed **nothing** — same all-ON answer on the same panels — so it
+was not shipped: it is a visual limitation of this encoder, not a missing instruction. The
+yield-based `REFINE_CORRECTED` repair absorbs it and the exported rows are right, at the cost of
+that warning on nearly every C47 order and confidence 0.85 on its OFF rows.
+
+**Model bake-off round 3 — the 8b pin stands.** Of everything that appeared in the Ollama vision
+library since round 2, only `ornith-1.5:9b` (6.6 GB) fits the recommended tier at all: `qwen3.6`
+(27B/35B), `qwen3.8` (27B), `muse-glimmer` (30B) and `ornith-1.5:35b` need 18–23 GB, and
+`glm-5.3-flash` is a `:cloud` model, which this project may not use at any accuracy. Ornith reads
+the C47 toggles **correctly** — the one cell class the pin gets wrong — but it is a *thinking*
+model and pays for it. Same panel, same prompt, idle RTX 5090: **149 s/image against the pin's
+7.2 s**, a factor of 21. With `think: false` it gets faster but **loses the toggle advantage**,
+which was the whole reason to look at it. The tier budget is ~5 s on 12 GB; no change.
+
+**The expected file now covers the whole corpus — 34 orders, 264 rows** (was 17), generated with
+the config it has always been generated with: primary `qwen3-vl:8b-instruct`, verify partner
+`qwen3-vl:4b-instruct`, bundled OCR. Five cells moved against the previous file, and each was
+settled against the pixels of the capture rather than against a run:
+
+| Order | Cell | Old → new | Verdict |
+| --- | --- | --- | --- |
+| a2 | BEXALITE 875, QTY | 494 → **404** | new is right; the old file recorded the misread §6/the verify addendum describe |
+| a7 | INERT MATERIALS, QTY | 1484 → **1404** | new is right (a7 is pre-cropped — Locate never touched it, so this cell had been stale) |
+| a10 | GOLD 553/559, QUALITY | 553 → 559 | **the new value is wrong**; the expected file now records a misread |
+| a14 | LARANITE, QUALITY | 510 → 518 | **the new value is wrong**; likewise |
+| a11 | CONSTRUCTION RUBBLE | `RUCTION…` → `'RUCTION…` | cosmetic garble of a name the crop clips; fuzzy matching absorbs either |
+
+The two wrong ones are not a degradation of the read — they are the crop box moving a few pixels
+(the box filter shifts it, which changes the upscale factor), landing the other way on the
+1–2 pixel glyph damage §2.1 already established is **not invertible**. Neither the 4b verify partner
+nor the OCR cross-reader catches them: all three readers agree on the wrong digit. They are recorded
+here so nobody mistakes the expected file for ground truth. Against that, all sixteen C47 orders
+went from unreadable to correct, a2 and a7 became correct, and every C47 header total and station
+name was verified against the captures by hand.
+
+**Cross-model verify is close to a no-op on this corpus now.** Over all 34 orders it changes
+exactly one cell against the primary-only run: a18's LARANITE quality, whose misread had split one
+physical row into two across five scrolled captures. That is worth having — it is a stitching
+failure, not just a digit — but the round-2 claim that verify auto-corrects the open digit misreads
+no longer has anything left to correct here.

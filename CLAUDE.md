@@ -80,6 +80,25 @@ Run from the **repo root** (not a subfolder), with **JDK 25** active. On Windows
 - **Build the MSI only via `package-msi.ps1`**, never `gradlew packageMsi` directly
   (see *Packaging* below).
 
+**Refinery changes are verified against the private sample corpus, not by unit tests alone.**
+`PromptSmokeTest` runs the whole live path (Locate → Normalize → read → stitch → validate) over a
+folder of order folders and diffs the result against a golden-expected JSON; it is trivially green
+when the env vars are unset, and it needs a running Ollama. `PanelDumpTest` writes just the
+normalized crops — that is the fastest way to see a Locate regression, because a wrong crop still
+produces a plausible-looking export.
+
+```powershell
+$env:PROMPT_SMOKE_DIR      = "<the sample corpus>"          # one folder per order
+$env:PROMPT_SMOKE_EXPECTED = "<corpus>\golden-expected.json" # PRIVATE, lives next to the corpus
+.\gradlew.bat test --tests '*PromptSmokeTest*' --rerun-tasks   # env changes don't invalidate the task
+```
+
+Add `PROMPT_SMOKE_VERIFY_MODEL=qwen3-vl:4b-instruct` for the config the expected file was generated
+with. **Never** regenerate the whole file with `PROMPT_SMOKE_WRITE_EXPECTED=1` to make a diff go
+away — merge the orders you meant to add and leave the rest, and settle any disputed cell against
+the pixels of the capture, not against whichever run you like better. Corpus and expected file are
+private (guardrail 1a) and live outside the repo; ask for their path.
+
 ## Critical guardrails — do not break these
 
 1. **`game-log/` is private and must never be published.** It holds real `Game.log`
@@ -394,6 +413,11 @@ Run from the **repo root** (not a subfolder), with **JDK 25** active. On Windows
   resolves to the same JDK; rebuild the MSI and launch the GUI from the app image.
 - **the parser/regex or model** → update `sample.log` + the tests; re-confirm the
   179/`greluc` characterization against the local `game-log/`.
+- **`Locate`'s colour anchors or the crop geometry** → run `PanelDumpTest` over the whole sample
+  corpus and LOOK at the crops, then the full `PromptSmokeTest` sweep. The game restyles the
+  refinement terminal without notice, and a broken anchor does not fail — it exports a work order
+  read out of the sidebar (see the knowledge base: *The refinery got a new skin and every panel was
+  cropped to the sidebar*).
 - **bundled modules or the runtime** → `suggestRuntimeModules`, rebuild, GUI-launch test.
 - **the export shape** → bump `schemaVersion` for any breaking change. Additive optional
   (nullable) fields may stay within the current version (basetool ADR-0008 evolution

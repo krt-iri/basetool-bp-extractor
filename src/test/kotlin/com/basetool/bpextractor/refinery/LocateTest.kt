@@ -1,5 +1,6 @@
 package com.basetool.bpextractor.refinery
 
+import java.awt.BasicStroke
 import java.awt.Color
 import java.awt.image.BufferedImage
 import kotlin.test.Test
@@ -355,6 +356,136 @@ class LocateTest {
         assertNotNull(prepared.panelBox)
         assertNotNull(prepared.locationImage)
         assertTrue(prepared.readImage.width % 32 == 0)
+    }
+
+    // ---- The C47 refinery UI (the skin the game switched to on 2026-07-20) -------------------
+
+    /** The C47 CONFIRM fill, bright capture. */
+    private val c47Confirm = Color(154, 182, 59)
+
+    /** The C47 tab strip's hatch ink — bright red stripes whose AREA MEAN is the maroon anchor. */
+    private val hatchInk = Color(120, 42, 48)
+
+    /** The terminal's system banner ("// REFINERY SYSTEM C47.02"), a dark-red bar at the top. */
+    private val banner = Color(96, 40, 40)
+
+    /**
+     * Paint a C47-skin work-order panel: the tab strip is a DIAGONAL HATCH block over the panel's
+     * top-left ~0.37 (not the amber skin's solid full-width bar), and the CTA is green.
+     * [confirm] = null leaves the CANCEL/CONFIRM row off the capture entirely.
+     */
+    private fun paintC47Panel(
+        img: BufferedImage,
+        x: Int,
+        y: Int,
+        panelWidth: Int,
+        panelHeight: Int,
+        confirm: Color? = c47Confirm,
+    ) {
+        val g = img.createGraphics()
+        try {
+            val hatchW = (panelWidth * 0.37).toInt()
+            g.color = hatchInk
+            g.stroke = BasicStroke(3f)
+            g.clipRect(x + 8, y, hatchW, 30)
+            var i = -30
+            while (i < hatchW + 30) {
+                g.drawLine(x + 8 + i, y + 30, x + 8 + i + 30, y)
+                i += 6
+            }
+            g.clip = null
+            if (confirm != null) {
+                g.color = confirm
+                g.fillRect(x + (panelWidth * 0.55).toInt(), y + panelHeight - 60, (panelWidth * 0.4).toInt(), 40)
+            }
+        } finally {
+            g.dispose()
+        }
+    }
+
+    @Test
+    fun `isCtaGreen spans both C47 exposures and never swallows the amber fill`() {
+        assertTrue(Locate.isCtaGreen(154, 182, 59), "CONFIRM, bright capture (Auftrag 23–34)")
+        assertTrue(Locate.isCtaGreen(139, 166, 55), "SETUP WORK ORDER, the same fill dimmed")
+        assertTrue(Locate.isCtaGreen(117, 126, 54), "CONFIRM, dim capture (Auftrag 19–22)")
+        assertFalse(Locate.isCtaGreen(231, 126, 35), "the amber CTA is [isCtaOrange]'s business")
+        assertFalse(Locate.isCtaGreen(18, 18, 18), "the dark panel interior")
+        assertFalse(Locate.isCtaGreen(230, 235, 240), "bright UI text")
+        assertFalse(Locate.isCtaGreen(72, 49, 45), "the maroon tab strip")
+    }
+
+    @Test
+    fun `C47 skin - the hatched strip and green CTA locate the panel, not the system banner`() {
+        // The 2026-07-20 refinery UI: the tab strip is a diagonal hatch (only its AREA MEAN is
+        // maroon, which is why Locate downscales with a box filter — bicubic point-samples the
+        // stripes away) and CONFIRM is green. Above both sits the terminal's own system banner,
+        // a wide dark-red bar at the capture's top edge that must never win the leftmost rule.
+        val img = frame(800, 950)
+        val g = img.createGraphics()
+        try {
+            g.color = banner
+            g.fillRect(100, 0, 500, 12)
+        } finally {
+            g.dispose()
+        }
+        paintC47Panel(img, x = 340, y = 88, panelWidth = 450, panelHeight = 860)
+
+        val boxes = Locate.locatePanels(img)
+
+        assertEquals(1, boxes.size, "the banner must not add a candidate")
+        val box = boxes.single()
+        assertTrue(box.x in 300..360, "x=${box.x} — the panel, not the banner at x=100")
+        assertTrue(box.x + box.width >= 760, "right=${box.x + box.width} must reach past the CTA")
+        assertTrue(box.y + box.height >= 900, "bottom=${box.y + box.height}")
+    }
+
+    @Test
+    fun `an orange-lit scenery patch with both anchors is not a panel candidate`() {
+        // Auftrag 9: on a 32:9 frame a rock face under the refinery work lights matches maroon
+        // AND has orange highlights below it, and it sits LEFT of the real panel — where the
+        // leftmost-is-newest rule would hand it to the model. The terminal interior is a
+        // desaturated dark UI; the world is not.
+        val img = frame()
+        val g = img.createGraphics()
+        try {
+            g.color = Color(140, 70, 25) // lit rock: far too saturated to be terminal chrome
+            g.fillRect(200, 500, 1200, 1400)
+            g.color = Color(90, 45, 25) // a maroon-matching band across it
+            g.fillRect(300, 520, 600, 36)
+            g.color = cta // an orange highlight low on the rock
+            g.fillRect(900, 1800, 300, 40)
+        } finally {
+            g.dispose()
+        }
+        paintPanel(img, x = 2000, y = 500, panelWidth = 900, panelHeight = 1400)
+
+        val target = Locate.locatePanel(img)
+
+        assertTrue(target.x in 1900..2100, "x=${target.x} must be the panel, not the rock at x=300")
+    }
+
+    @Test
+    fun `a capture that cuts the CTA row off still locates the panel from its strip`() {
+        // Auftrag 23: the screenshot ends just above CANCEL/CONFIRM, so no CTA can confirm the
+        // strip. The fixed 4K geometry is a far worse guess than the strip we did find, so the
+        // rescue takes the panel down to the capture's bottom edge.
+        val img = frame(800, 950)
+        paintC47Panel(img, x = 340, y = 88, panelWidth = 450, panelHeight = 860, confirm = null)
+
+        val box = assertNotNull(Locate.locatePanelOrNull(img), "rescued from the strip alone")
+
+        assertTrue(box.x in 300..360, "x=${box.x}")
+        assertTrue(box.y + box.height >= 940, "the panel runs to the bottom edge, got ${box.y + box.height}")
+    }
+
+    @Test
+    fun `the CTA-less rescue ignores a strip low in the capture`() {
+        // A tab strip sits at the TOP of a panel that then fills the capture; a maroon run down
+        // in the sidebar cannot stand in for one, so this falls back rather than crop the sidebar.
+        val img = frame(800, 950)
+        paintC47Panel(img, x = 40, y = 700, panelWidth = 260, panelHeight = 240, confirm = null)
+
+        assertTrue(Locate.locatePanels(img).isEmpty())
     }
 
     @Test
